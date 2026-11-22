@@ -1,0 +1,6 @@
+{
+  "name": "The Gideonites — Youth Alive",
+  "description": "Mobile-first installable PWA for The Gideonites (The Youth Alive Fellowship) connected to live Firebase Firestore.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

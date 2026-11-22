@@ -1,0 +1,291 @@
+{
+  "entities": {
+    "FellowshipAccount": {
+      "title": "FellowshipAccount",
+      "description": "User account synced across Android and PWA under The Gideonites fellowship.",
+      "type": "object",
+      "properties": {
+        "fellowshipId": { "type": "string" },
+        "fullName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phoneNumber": { "type": "string" },
+        "password": { "type": "string" },
+        "passwordHash": { "type": "string" },
+        "passwordSalt": { "type": "string" },
+        "role": { "type": "string", "enum": ["ADMINISTRATOR", "EXECUTIVE", "MEMBER", "GUEST"] },
+        "status": { "type": "string", "enum": ["APPROVED", "PENDING", "DECLINED", "PURGED"] },
+        "department": { "type": "string" },
+        "preferredLanguage": { "type": "string", "enum": ["EN", "YO", "HA", "IG"] },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["fellowshipId", "fullName", "email", "role", "status"]
+    },
+    "Programme": {
+      "title": "Programme",
+      "description": "Youth fellowship programme or event with registration JSON.",
+      "type": "object",
+      "properties": {
+        "fellowshipId": { "type": "string" },
+        "createdById": { "type": "string" },
+        "titleEn": { "type": "string" },
+        "descriptionEn": { "type": "string" },
+        "category": { "type": "string" },
+        "venue": { "type": "string" },
+        "speaker": { "type": "string" },
+        "contactPerson": { "type": "string" },
+        "participantLimit": { "type": "number" },
+        "isRegistrationEnabled": { "type": "boolean" },
+        "startDateMillis": { "type": "number" },
+        "endDateMillis": { "type": "number" },
+        "status": { "type": "string" },
+        "registeredCount": { "type": "number" },
+        "registrationsJson": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["fellowshipId", "titleEn", "category", "venue", "participantLimit", "startDateMillis"]
+    },
+    "CommunityPost": {
+      "title": "CommunityPost",
+      "description": "Forum posts, comments JSON, likes, and official fellowship announcements.",
+      "type": "object",
+      "properties": {
+        "fellowshipId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorRole": { "type": "string" },
+        "category": { "type": "string" },
+        "content": { "type": "string" },
+        "likesCount": { "type": "number" },
+        "commentsJson": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["fellowshipId", "authorId", "authorName", "category", "content"]
+    },
+    "ExecutiveInquiry": {
+      "title": "ExecutiveInquiry",
+      "description": "Ask the Excos inquiries and pastoral/executive responses.",
+      "type": "object",
+      "properties": {
+        "fellowshipId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "isAnonymous": { "type": "boolean" },
+        "subject": { "type": "string" },
+        "question": { "type": "string" },
+        "status": { "type": "string" },
+        "response": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["fellowshipId", "senderId", "subject", "question", "status"]
+    },
+    "DailyScripture": {
+      "title": "DailyScripture",
+      "description": "Daily scriptures, sermons, devotionals, and uploaded PDF/EPUB Bibles.",
+      "type": "object",
+      "properties": {
+        "fellowshipId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "dateKey": { "type": "string" },
+        "referenceEn": { "type": "string" },
+        "verseTextEn": { "type": "string" },
+        "reflectionEn": { "type": "string" },
+        "prayerPromptEn": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["fellowshipId", "referenceEn", "verseTextEn", "prayerPromptEn"]
+    },
+    "QuizSession": {
+      "title": "QuizSession",
+      "description": "Live multiplayer Bible game sessions with room PIN, localized titles, substate timing, questionsJson, and participantsJson.",
+      "type": "object",
+      "properties": {
+        "hostId": { "type": "string" },
+        "hostName": { "type": "string" },
+        "fellowshipId": { "type": "string" },
+        "roomPin": { "type": "string" },
+        "titleEn": { "type": "string" },
+        "titleYo": { "type": "string" },
+        "titleHa": { "type": "string" },
+        "titleIg": { "type": "string" },
+        "description": { "type": "string" },
+        "gameType": { "type": "string", "enum": ["TRIVIA_CHALLENGE", "WHO_AM_I", "SCRIPTURE_SCRAMBLE"] },
+        "status": { "type": "string", "enum": ["DRAFT", "SCHEDULED", "ACTIVE", "COMPLETED", "CANCELLED"] },
+        "scheduledStartTime": { "type": "number" },
+        "timeLimitPerQuestionSeconds": { "type": "number" },
+        "leaderboardDurationSeconds": { "type": "number" },
+        "currentQuestionIndex": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "currentSubstate": { "type": "string", "enum": ["WAITING_TO_START", "QUESTION_OPEN", "LEADERBOARD"] },
+        "currentQuestionDeadline": { "type": "number" },
+        "leaderboardDeadline": { "type": "number" },
+        "baseScorePerQuestion": { "type": "number" },
+        "speedBonusEnabled": { "type": "boolean" },
+        "maxSpeedBonus": { "type": "number" },
+        "penaltyForIncorrect": { "type": "boolean" },
+        "questionsJson": { "type": "string" },
+        "participantsJson": { "type": "string" },
+        "participantCount": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": [
+        "hostId",
+        "hostName",
+        "fellowshipId",
+        "roomPin",
+        "titleEn",
+        "gameType",
+        "status",
+        "currentQuestionIndex",
+        "totalQuestions",
+        "participantCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "GameQuiz": {
+      "title": "GameQuiz",
+      "description": "Solo practice and featured scripture quizzes.",
+      "type": "object",
+      "properties": {
+        "createdById": { "type": "string" },
+        "fellowshipId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "questionsJson": { "type": "string" },
+        "totalQuestions": { "type": "number" },
+        "timeLimitSeconds": { "type": "number" },
+        "difficulty": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": [
+        "createdById",
+        "fellowshipId",
+        "title",
+        "category",
+        "questionsJson",
+        "totalQuestions",
+        "timeLimitSeconds",
+        "difficulty",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "GameScore": {
+      "title": "GameScore",
+      "description": "Global leaderboard scores for Solo quizzes and Multiplayer showdowns.",
+      "type": "object",
+      "properties": {
+        "quizId": { "type": "string" },
+        "quizTitle": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "fellowshipId": { "type": "string" },
+        "score": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "timeTakenSeconds": { "type": "number" },
+        "completedAt": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": [
+        "quizId",
+        "quizTitle",
+        "userId",
+        "userName",
+        "fellowshipId",
+        "score",
+        "totalQuestions",
+        "timeTakenSeconds",
+        "completedAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SermonAudioChunk": {
+      "title": "SermonAudioChunk",
+      "description": "Binary sermon audio slices (450KB raw -> <=700k raw Base64 chars) stored across devices.",
+      "type": "object",
+      "properties": {
+        "audioCloudId": { "type": "string" },
+        "fellowshipId": { "type": "string" },
+        "uploadedById": { "type": "string" },
+        "chunkIndex": { "type": "number" },
+        "totalChunks": { "type": "number" },
+        "dataBase64": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": [
+        "audioCloudId",
+        "fellowshipId",
+        "uploadedById",
+        "chunkIndex",
+        "totalChunks",
+        "dataBase64",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "FellowshipNotification": {
+      "title": "FellowshipNotification",
+      "description": "Real-time cross-device fellowship alerts.",
+      "type": "object",
+      "properties": {
+        "fellowshipId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["fellowshipId", "title", "message", "type"]
+    }
+  },
+  "firestore": {
+    "/fellowship_accounts/{accountId}": {
+      "schema": { "$ref": "#/entities/FellowshipAccount" },
+      "description": "Accounts collection shared with Android app."
+    },
+    "/programmes/{programmeId}": {
+      "schema": { "$ref": "#/entities/Programme" },
+      "description": "Youth programmes and event registrations."
+    },
+    "/community_posts/{postId}": {
+      "schema": { "$ref": "#/entities/CommunityPost" },
+      "description": "Forum posts and announcements."
+    },
+    "/executive_inquiries/{inquiryId}": {
+      "schema": { "$ref": "#/entities/ExecutiveInquiry" },
+      "description": "Ask the Excos inquiries and replies."
+    },
+    "/daily_scriptures/{scriptureId}": {
+      "schema": { "$ref": "#/entities/DailyScripture" },
+      "description": "Daily scriptures, sermons, devotionals, and uploaded Bible packs."
+    },
+    "/sermon_audio_chunks/{chunkId}": {
+      "schema": { "$ref": "#/entities/SermonAudioChunk" },
+      "description": "Chunked Base64 sermon audio slices scoped to fellowshipId == GIDEONITES."
+    },
+    "/quiz_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/QuizSession" },
+      "description": "Live multiplayer Bible quiz game sessions."
+    },
+    "/game_quizzes/{quizId}": {
+      "schema": { "$ref": "#/entities/GameQuiz" },
+      "description": "Solo featured scripture quizzes."
+    },
+    "/game_scores/{scoreId}": {
+      "schema": { "$ref": "#/entities/GameScore" },
+      "description": "Global leaderboard scores."
+    },
+    "/fellowship_notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/FellowshipNotification" },
+      "description": "Real-time cross-device notifications."
+    }
+  }
+}

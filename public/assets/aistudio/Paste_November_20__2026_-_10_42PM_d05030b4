@@ -1,0 +1,426 @@
+# PWA Adaptation Prompt — Games Section ("The Gideonites - The Youth Alive Fellowship")
+
+Implement the **Games** section of **The Gideonites - The Youth Alive Fellowship** Progressive Web App (PWA), faithfully matching the existing Android app (`GamesAndReportsScreen`, `BibleGamesTabContent`, `MultiplayerGameArena`, `CreateMultiplayerGameDialog`, `CreateQuizDialog`, `ActiveQuizRunner`, `BibleScripturePickerDialog`, and their repositories/models) and sharing the exact same Firebase Firestore backend and security rules.
+
+> **Strict Scope Rule:** Implement every feature, role rule, formula, label, and Firestore contract specified below. Do **not** invent extra unrequested features, and explicitly handle every issue listed in **Section 8 (Known Bugs, Discrepancies & PWA/iOS Pitfalls)**. Note: despite the legacy Android screen name (`GamesAndReportsScreen`), the Games tab renders **exclusively Games & Trivia** (there is no weekly reports UI).
+
+---
+
+## 1. Role Matrix & Global Rules
+
+User roles: `ADMINISTRATOR`, `YOUTH_EXECUTIVE`, `YOUTH_MEMBER`, `GUEST`.  
+Active Fellowship ID: `"GIDEONITES"`.  
+Supported App Languages (`AppLanguage`): `EN` (`"EN"`), `YO` (`"YO"`), `HA` (`"HA"`), `IG` (`"IG"`).
+
+| Capability | `ADMINISTRATOR` | `YOUTH_EXECUTIVE` | `YOUTH_MEMBER` | `GUEST` |
+|---|:---:|:---:|:---:|:---:|
+| View Live / Scheduled / Completed Multiplayer Showdowns | Yes | Yes | Yes | Yes |
+| Play Instant 3-Mode Arena / Join Multiplayer Lobby | Yes | Yes | Yes | Yes |
+| View & Edit/Launch/Delete Saved Multiplayer **Drafts** (`status == "DRAFT"`) | Yes | Yes | **No (Hidden)** | **No (Hidden)** |
+| FAB (`+`) to Create / Schedule Multiplayer Game | Yes | Yes | No | No |
+| Start Scheduled Game Early / Cancel Scheduled / End Active Game | Yes | Yes | No | No |
+| `"📢 Alert All"` (Broadcast `GAME_TIME` notification) | Yes | Yes | No | No |
+| `"Create Solo Scripture Quiz"` button in Console card | Yes | Yes | No | No |
+| `"📖 PDF / EPUB Bible Reference & Uploader"` (`"Bible DB"`) | Yes | Yes | No | No |
+| Empty-state `"+ Create First Scripture Quiz"` CTA | **Yes** | **No** *(Android asymmetry)* | No | No |
+| Delete Solo Quiz (`QuizItemCard` delete icon) | **Yes** | **No** *(Android asymmetry)* | No | No |
+| Delete Leaderboard Score + `"Live Rankings"` pill | **Yes** | **No** *(Android asymmetry)* | No | No |
+| Persist Final Score to `/game_scores` | Yes | Yes | Yes | **No** |
+
+---
+
+## 2. Games Hub Screen Layout & Order
+
+### 2.1 Top Header Banner
+Dark container (`#GlobeBlack` / `#0F172A` surface, rounded bottom corners `24px`), containing a circular tinted `SportsEsports` icon + title + subtitle by role:
+- `ADMINISTRATOR`: `"The Gideonites - The Youth Alive Fellowship • Game Command"` / `"Live Multiplayer Showdown"` / accent `FlameRedPrimary`
+- `YOUTH_EXECUTIVE`: `"The Gideonites - The Youth Alive Fellowship • Scripture Games"` / `"Live Arena Showdowns"` / accent `FlameGoldAccent`
+- `YOUTH_MEMBER`: `"The Gideonites - The Youth Alive Fellowship • Kingdom Giants"` / `"Live Arena Showdowns"` / accent `#10B981`
+- `GUEST`: `"Welcome to The Gideonites - Youth Alive Games"` / `"Live Arena Standby"` / accent `#3B82F6`
+
+### 2.2 Floating Action Button (`create_quiz_fab`)
+- Visible **only** when: NOT inside `MultiplayerGameArena`, NOT inside `ActiveQuizRunner`, AND role is `ADMINISTRATOR` or `YOUTH_EXECUTIVE`.
+- Action: Opens **Create / Schedule Multiplayer Game Modal** (`CreateMultiplayerGameDialog`).
+
+### 2.3 Vertical Feed Order (Top to Bottom)
+
+1. **Active Multiplayer Showdown Card** *(if a session with `status == "ACTIVE"` exists)*:
+   - `FlameRedPrimary` highlighted card:
+     - Badge: `"LIVE SHOWDOWN ACTIVE"`
+     - Title: `"{title} 🎮"`
+     - Subtitle: `"{gameType.displayName} • Round {currentQuestionIndex + 1} of {totalQuestions}"`
+     - Primary button: `"Jump Into Live Showdown"` (all roles -> enters `MultiplayerGameArena`)
+     - Admin/Exec only outlined button: `"End Game"` (calls `endMultiplayerSession` -> sets `COMPLETED`)
+   - *Else if* global flag `isGameTimeActive == true`:
+     - `primaryContainer` card: `"LIVE GAME ARENA"`, `"Sunday Youth Live Showdown 🎮"`, `"Enter Live Arena Now"`, plus Admin/Exec `"📢 Alert All"` button.
+
+2. **Scheduled Multiplayer Showdowns** *(if any session has `status == "SCHEDULED"`)*:
+   - Section header: `"SCHEDULED MULTIPLAYER SHOWDOWNS ({count})"`
+   - Gold-bordered cards showing:
+     - `gameType.displayName` + `"⏰ Scheduled"` badge
+     - `title`
+     - `"{totalQuestions} Rounds • {timeLimitPerQuestionSeconds}s per question"`
+     - Actions (`flex-wrap` / `FlowRow`):
+       - All roles: `"Enter Lobby"`
+       - Admin/Exec only: `"🚀 Start"` (starts immediately) and `"Cancel"` (sets `CANCELLED`)
+
+3. **Saved Game Drafts (Admin & Youth Executive ONLY)** *(if any session has `status == "DRAFT"`)*:
+   - **Never visible to `YOUTH_MEMBER` or `GUEST`.**
+   - Section header: `"SAVED GAME DRAFTS ({count})"`
+   - Outline-bordered cards showing:
+     - `gameType.displayName` + `"DRAFT • SAVED FOR LATER"` badge
+     - `title`
+     - `"{totalQuestions} Rounds • {timeLimitPerQuestionSeconds}s/q • {baseScorePerQuestion}p base"`
+     - Wrapping `flex-wrap` actions:
+       - `"Edit Draft"` (opens `CreateMultiplayerGameDialog` pre-populated with draft data)
+       - `"Launch Now"` (promotes draft to `ACTIVE`, opens first question immediately, enters arena, and broadcasts notification)
+       - `"Delete"` (deletes draft locally + in Firestore `/quiz_sessions`)
+
+4. **Standby Arena Banner** *(shown when `activeMultiplayerSession == null && !isGameTimeActive`)*:
+   - Badge: `"LIVE ARENA • STANDBY"`
+   - Heading: `"Live Scripture Showdown Arena 🎮"` + role-tailored description.
+   - Admin/Exec wrapping `flex-wrap` row:
+     - `"🎮 Create / Schedule Game"` (opens `CreateMultiplayerGameDialog`)
+     - `"📢 Alert All"` (triggers `GAME_TIME` fellowship alert)
+     - `"Bible DB"` (opens `BibleScripturePickerDialog`)
+
+5. **3 Multiplayer Game Modes Quick-Launcher**:
+   - Section header: `"3 MULTIPLAYER GAME MODES • INSTANT ARENA"`
+   - 3 equal cards side-by-side (responsive wrap on very narrow screens):
+     1. `TRIVIA_CHALLENGE`: `⚡` | `"Trivia Challenge"` | `"4 Options & Speed"` | Button: `"Play Now"` (`20s` per question)
+     2. `WHO_AM_I`: `🕵️` | `"Who Am I?"` | `"Progressive Clues"` | Button: `"Play Now"` (`30s` per question)
+     3. `SCRIPTURE_SCRAMBLE`: `🧩` | `"Scripture Scramble"` | `"Verse Scramble"` | Button: `"Play Now"` (`30s` per question)
+   - `"Play Now"` behavior:
+     - First checks `upcomingAndActiveSessions` (which contains `ACTIVE` or `SCHEDULED` sessions only—never `DRAFT`) for a matching `gameType`; if found, joins that session directly.
+     - Otherwise, creates & immediately launches (`delay = 0`, `baseScore = 100`, `speedBonusEnabled = true`, localized presets in the user's active `AppLanguage`) and opens `MultiplayerGameArena`.
+     - If multiplayer creation is unavailable, falls back to launching a solo 4-question `"Sunday Fellowship Live Showdown"` in `ActiveQuizRunner`.
+
+6. **Recent Completed Multiplayer Showdowns** *(up to `.take(5)` where `status == "COMPLETED"`)*:
+   - Section header: `"RECENT MULTIPLAYER SHOWDOWNS ({count})"`
+   - Each card: `"COMPLETED • {gameType.displayName}"`, `title`, `"{totalQuestions} Rounds • Final Podium & Standings Recorded"`, `"Podium"` button -> opens `MultiplayerGameArena` directly on `MultiplayerPodiumView`.
+
+7. **Role-Specific Console / Progress Card**:
+   - `ADMINISTRATOR`: `"Quiz & Leaderboard Administration"` with `"🎮 Schedule / Launch Multiplayer Showdown"`, `"Create Solo Scripture Quiz"`, `"📖 PDF / EPUB Bible Reference & Uploader"`.
+   - `YOUTH_EXECUTIVE`: `"Executive Games & Bible Reference Console 🏆"` with the exact same 3 actions.
+   - `YOUTH_MEMBER`: `"Your Trivia Progress"` card displaying:
+     - `quizzesCompleted` count, `bestScore` (`"{bestScore} pts"`), Colossians 3:16 quote, and Kingdom Rank badge computed as:
+       - `bestScore >= 300 || bestScore in 8..50` -> `"Kingdom Giant 👑"`
+       - `bestScore >= 180 || bestScore in 5..7` -> `"Bible Scholar 📜"`
+       - `bestScore >= 80 || bestScore in 2..4` -> `"Faith Seeker 🌱"`
+       - Otherwise -> `"Bible Explorer 🧭"`
+   - `GUEST`: `"Play & Challenge Your Bible Knowledge! 🎮"` invite card.
+
+8. **Featured Quizzes & Scripture Challenges (`/game_quizzes`)**:
+   - Empty state (`ModernEmptyState`): `"+ Create First Scripture Quiz"` CTA shown **only** to `ADMINISTRATOR`.
+   - List of `QuizItemCard` items:
+     - `title`, `"{totalQuestions} Questions • {timeLimitSeconds}s Limit • {difficulty}"`
+     - Delete icon button (`ADMINISTRATOR` only)
+     - `"Play"` button -> opens `ActiveQuizRunner`
+
+9. **Youth Global Leaderboard (`/game_scores`, `.take(20)`)**:
+   - Header + `"Live Rankings"` pill (`ADMINISTRATOR` only).
+   - Empty state: `"Leaderboard is Fresh"`.
+   - Rows (`LeaderboardItemRow`): Rank index, `score.userName` + `"★ YOU"` badge if `score.userId == currentUser.userId`, `score.quizTitle`, `"{score.score} / {score.totalQuestions} pts"`, Delete icon button (`ADMINISTRATOR` only).
+   - Footer note for `GUEST` users noting scores are not saved as Guest.
+
+---
+
+## 3. Game Creation, Editing & Draft Lifecycle
+
+### 3.1 `CreateMultiplayerGameDialog` (Create / Edit Draft / Verse Pre-fill)
+Accepts optional `initialDraftSession` (shows `"EDITING SAVED DRAFT"` badge and populates title, description, gameType, timer, baseScore, speedBonusEnabled, and parsed `questions`) or `initialSelectedVerse` (defaults to `SCRIPTURE_SCRAMBLE` and appends a scramble question built from that verse).
+
+**Form Fields & Controls (ensure responsive wrapping on mobile viewports):**
+1. **Title** *(required)* & **Description** *(optional)*.
+2. **Game Type Selector** (3 selectable cards: `TRIVIA_CHALLENGE`, `WHO_AM_I`, `SCRIPTURE_SCRAMBLE`).
+   - *Important Android quirk to preserve or safely improve:* In Android, tapping a game type card replaces the current `questions` list with `PresetGameSessions.getPresetQuestions(type, currentLang)`. If preserving strict parity, note this; ideally prompt before discarding user-edited questions when switching modes in edit/create!
+3. **Start Schedule** (`flex-wrap` chips):
+   - `0` mins (`"🚀 Start Now"`), `2` mins, `5` mins, `15` mins. *(Note: editing an existing `DRAFT` defaults delay to `0`.)*
+4. **Question Timer** (`flex-wrap` chips): `15s`, `20s`, `30s`, `45s`.
+5. **Base Score** (`flex-wrap` chips): `50p`, `100p`, `200p`.
+6. **Speed Bonus (`+50 max`)** toggle (`Switch`).
+7. **Questions & Rounds Header (`"QUESTIONS & ROUNDS ({count})"`)** with `flex-wrap` button row:
+   - `"Add Question"` -> opens `TailoredQuestionEditorModal` for the currently selected `gameType`
+   - `"Bible DB"` -> opens `BibleScripturePickerDialog` (if `SCRIPTURE_SCRAMBLE`, appends the selected verse directly as a new scramble question; for other modes, opens/inserts scripture)
+   - `"Load Presets"` -> loads localized preset questions for the selected `gameType` and `AppLanguage`
+8. **Question List (`QuestionAdminCard`)**:
+   - Shows index, prompt/reference preview, points/timer.
+   - Controls: **Move Up**, **Move Down**, **Preview** (`QuestionPreviewModal` — previews options/clues/scrambled tiles + explanation without scoring), **Edit** (`TailoredQuestionEditorModal`), **Delete**.
+9. **Bottom Action Bar** (`flex-wrap` so no button ever clips off narrow mobile screens):
+   - `"Cancel"`
+   - `"Save Draft"` -> Saves `status = "DRAFT"`, `currentSubstate = "WAITING_TO_START"`, `scheduledStartTime = 0`, `currentQuestionDeadline = 0`, `leaderboardDeadline = 0`, `currentQuestionIndex = 0`. **Does NOT broadcast any notification.** If editing an existing draft, updates that same `sessionId` instead of duplicating!
+   - Primary CTA (requires non-blank title and `questions.isNotEmpty()`):
+     - If `delayMinutes == 0`: `"Launch Showdown Now"` -> saves as `ACTIVE`, `currentSubstate = "QUESTION_OPEN"`, opens Question 1 immediately (`currentQuestionDeadline = now + timeLimit * 1000`), broadcasts `GAME_TIME` notification, opens `MultiplayerGameArena`.
+     - If `delayMinutes > 0`: `"Publish & Schedule Game"` -> saves as `SCHEDULED`, `currentSubstate = "WAITING_TO_START"`, `scheduledStartTime = now + delayMinutes * 60_000`, broadcasts `GAME_TIME` notification, closes modal.
+
+### 3.2 `TailoredQuestionEditorModal`
+- **Trivia Challenge**: Prompt, Scripture Reference + `"Bible DB"` quick-fill button, 4 Option text inputs (`A`, `B`, `C`, `D`) + radio/selector for `correctAnswer`, Biblical Explanation, Timer (s), Points.
+- **Who Am I?**: Target Character/Answer (`correctAnswer`), Scripture Reference + `"Bible DB"`, 2–4 Progressive Clues (Clue 1 hardest -> Clue 4 easiest, dynamic add/remove within 2..4), Biblical Explanation, Timer (s), Points.
+- **Scripture Scramble**: Verse Text (full exact verse to reconstruct), Scripture Reference, Translation, `"Bible DB"` picker, live preview of `scrambleVerse(verseText)` chips, Biblical Explanation, Timer (s), Points.
+
+### 3.3 `CreateQuizDialog` (Solo Scripture Quiz)
+- Fields: Title *(required)*, Short Description, Category dropdown (`BIBLE_TRIVIA`, `SCRIPTURE_MEMORY`, `CHURCH_DOCTRINE`, `YOUTH_HISTORY`), Difficulty (`Easy`, `Medium`, `Hard`), Time Limit in seconds (default `90`).
+- Questions section with `flex-wrap` row: `"Add Question"`, `"From Bible"` (opens `BibleScripturePickerDialog`).
+- Per-question editor: Question prompt, Scripture Reference + `"Bible DB"`, 4 Options `A..D` + correct answer radio (`correctAnswerIndex` 0..3).
+- Actions: `"Cancel"`, `"Publish Quiz"` -> writes to `/game_quizzes`.
+
+---
+
+## 4. Synchronized Multiplayer Arena Engine (`MultiplayerGameArena`)
+
+### 4.1 Lifecycle, Ticker & Host Authority
+- **Real-time subscription + 500ms Ticker Loop**:
+  - Subscribe to `/quiz_sessions/{sessionId}` via Firestore `onSnapshot`.
+  - Run a 500ms evaluation interval (`syncSessionState(sessionId, Date.now())`) to update remaining countdowns, clue unlocks, and round/intermission transitions.
+  - Whenever `questionsJson` changes, re-parse questions.
+  - When `status === "COMPLETED"`, slow polling/ticker to 2000ms and execute idempotent `recordCompletedMultiplayerScoreIfNeeded()`.
+- **Host Authority**:
+  - `isCurrentDeviceHost = (session.hostId === firebaseAuth.currentUser?.uid) || (session.hostId === currentUser.userId)`.
+  - **Non-Host Grace Window (`1500ms`)**: Non-host devices wait `1500ms` past `currentQuestionDeadline` / `leaderboardDeadline` / `scheduledStartTime` before locally advancing state, allowing the host's authoritative Firestore write to arrive first.
+
+### 4.2 State Machine
+1. **`SCHEDULED` / `WAITING_TO_START` (Lobby)**:
+   - Displays `MM:SS` countdown to `scheduledStartTime`, live `"{count} Connected Player(s)"` pill, Game Info card (`timeLimitPerQuestionSeconds`, `baseScorePerQuestion`, `maxSpeedBonus`), `"🚀 Start Game Now"` (Admin/Exec only), `"Leave Lobby"`.
+   - Transitions to `ACTIVE` + `QUESTION_OPEN` when host taps Start or `now >= scheduledStartTime`.
+2. **`ACTIVE` + `QUESTION_OPEN`**:
+   - Each question uses `qTimeLimit = (question.timerSeconds > 0 ? question.timerSeconds : session.timeLimitPerQuestionSeconds)`.
+   - Deadline = `currentQuestionDeadline`.
+   - When `now >= currentQuestionDeadline` (plus 1500ms grace for non-hosts): transitions to `currentSubstate = "LEADERBOARD"`, `leaderboardDeadline = now + leaderboardDurationSeconds * 1000` (where `EngagementViewModel` creates sessions with `leaderboardDurationSeconds = 8`, fallback/entity default `6`). Snapshots pre-intermission ranks for delta indicators.
+3. **`ACTIVE` + `LEADERBOARD` (Intermission)**:
+   - Shows countdown to `leaderboardDeadline`.
+   - When `now >= leaderboardDeadline`:
+     - If `currentQuestionIndex + 1 < totalQuestions`: increments `currentQuestionIndex`, sets `currentSubstate = "QUESTION_OPEN"`, sets `currentQuestionDeadline = now + nextQTimeLimit * 1000`.
+     - Else: sets `status = "COMPLETED"`, `currentSubstate = "LEADERBOARD"`, persists final `participantsJson`.
+4. **`COMPLETED` (Final Podium)**:
+   - Renders `MultiplayerPodiumView`.
+   - Non-`GUEST` participants save score once to `/game_scores/{mp-score-{sessionId}-{userId}}` with `score = participant.currentScore` and `totalQuestions = Math.max(totalQuestions * baseScorePerQuestion, 100)`.
+5. **`CANCELLED`**:
+   - Renders `MultiplayerCancelledView`: `"Game Session Cancelled"` + `"Return to Games Hub"`.
+
+### 4.3 Late Entry & Anti-Cheat Validation
+- **`joinSession`**:
+  - If participant already exists for `userId`, restores their record (`isOnline = true`, keeps existing `currentScore` and `joinedAtQuestionIndex`).
+  - If new participant joins while `status == "ACTIVE"`, sets `joinedAtQuestionIndex = session.currentQuestionIndex`, `currentScore = 0`.
+  - UI banner for late joiners (`joinedAtQuestionIndex > 0`): `"⚡ Joined at Round {joinedAtQuestionIndex + 1}"`.
+- **Submission Checks**:
+  - Reject if `questionIndex < participant.joinedAtQuestionIndex` -> `MissedQuestion`.
+  - Reject duplicate `(sessionId, questionIndex, userId)` in local/participant answer ledger -> `DuplicateRejected`.
+  - If `submissionTime > currentQuestionDeadline`: record `isLate = true`, `0` points, return `DeadlineExpired`.
+
+### 4.4 Exact Mode Mechanics & Scoring Math
+- **Base & Speed Math**:
+  - `base = question.points > 0 ? question.points : session.baseScorePerQuestion`
+  - `adjustedBase = Math.floor(base * clueMultiplier)`
+  - `speedBonus`: if `session.speedBonusEnabled && timeLimitSec > 0 && isCorrect`:
+    `ratio = clamp((currentQuestionDeadline - submissionTime) / (timeLimitSec * 1000), 0, 1)`
+    `speedBonus = Math.floor(ratio * session.maxSpeedBonus)` *(default `maxSpeedBonus = 50`)*
+  - `pointsAwarded = isCorrect ? (adjustedBase + speedBonus) : (session.penaltyForIncorrect ? -20 : 0)`
+  - `participant.currentScore = Math.max(0, participant.currentScore + pointsAwarded)`
+
+- **Mode 1: `TRIVIA_CHALLENGE`**:
+  - Displays optional `scriptureReference` badge, `prompt`, and 4 clickable `A/B/C/D` option cards.
+  - Submitting shows `"SELECTED"` lock state and `"Answer Submitted • {remSec}s remaining"`. **Correctness is NOT revealed until the round transitions to `LEADERBOARD`.**
+
+- **Mode 2: `WHO_AM_I`**:
+  - Has 2–4 clues (`clues[]`, hardest -> easiest).
+  - Exact progressive clue unlock formula (used both by UI and scoring):
+    - `totalWindowMs = qTimeLimit * 1000`
+    - `questionStartMs = currentQuestionDeadline - totalWindowMs`
+    - `timeElapsedMs = Math.max(0, now - questionStartMs)`
+    - `clueIntervalMs = Math.max(Math.floor(totalWindowMs / numClues), 1000)`
+    - `currentClueIndex = clamp(Math.floor(timeElapsedMs / clueIntervalMs), 0, numClues - 1)`
+  - Clue Multiplier & Banner Pill:
+    - `currentClueIndex === 0` -> `1.5` (`"🌟 150% Clue 1 Max Points!"`)
+    - `currentClueIndex === 1` -> `1.25` (`"⚡ 125% Clue 2 Points"`)
+    - `currentClueIndex >= 2` -> `1.0` (`"Standard Points"`)
+  - Locked clues show lock icon + `"Clue {index + 1} unlocks as time runs..."`.
+  - Player submits text answer (case-insensitive trimmed exact match against `correctAnswer`).
+
+- **Mode 3: `SCRIPTURE_SCRAMBLE`**:
+  - Header shows `"{scriptureReference} • {translation}"`.
+  - `"RECONSTRUCTED VERSE TRAY"` (tap word chip to return it to available tiles; `"Clear"` resets tray back to `question.scrambledWords`).
+  - `"AVAILABLE WORD TILES"` (`scrambledPool`).
+  - `"Submit Verse"` button submits `reconstructedWords.join(" ")`.
+  - **Exact `scrambleVerse(verse)` algorithm**:
+    1. Strip punctuation `[,.;:!?"'()—\[\]]`
+    2. Split on whitespace `\s+` into non-empty tokens
+    3. Shuffle; if `tokens.length > 1` and shuffled order equals original order, reverse `tokens`.
+  - **Exact `normalizeWords(input)` grading algorithm**:
+    1. `lowercase().trim()`
+    2. Replace `[^a-z0-9 ]` with `""`
+    3. Collapse `\s+` to `" "`
+    4. Compare `normalizeWords(submitted) === normalizeWords(correctAnswer)`.
+
+### 4.5 Leaderboard Sorting, Rank Movement, Intermission & Podium
+- **Strict Tie-Breaker Sort**:
+  1. `currentScore` DESC
+  2. `lastAnswerTimestamp > 0 ? lastAnswerTimestamp : Number.MAX_SAFE_INTEGER` ASC (earliest responder wins ties)
+  3. `userName` ASC
+- **Rank Movement**:
+  - `rankMovement = previousRank - newRank`:
+    - `> 0`: `▲ +{delta}` (Green) with upward slide/bounce animation
+    - `< 0`: `▼ {delta}` (Red)
+    - `0`: `• 0` (Silver)
+- **Intermission (`LEADERBOARD`) UI**:
+  - Countdown bar: `"NEXT QUESTION STARTS IN"` or `"FINAL PODIUM IN"` + seconds remaining.
+  - Result banner for current user: Green (`CORRECT +N pts`), Red (`INCORRECT`), or Amber (`NO ANSWER — Time's up!`), plus `"CORRECT ANSWER"` block and `"{scriptureReference} • {explanation}"`.
+  - Leaderboard card displays **ONLY TOP 5** (`"TOP 5 OF {totalParticipants}"`).
+  - Separate dark `"YOUR STANDING"` card shows `Rank #{rank} of {total}` + current score (+ `"N pts from Top 5"` if `rank > 5`).
+  - Button: `"Exit to Games Hub"`.
+- **Final Podium (`MultiplayerPodiumView`)**:
+  - Title: `"👑 TOURNAMENT COMPLETED 👑"`
+  - Podium bars: `#2` (`80px` visual height tier), `#1 🏆` (`115px` tier), `#3` (`60px` tier) + full standings list, `"YOUR FINAL RESULT"` card, `"Return to Fellowship Games Hub"` button.
+
+### 4.6 Localized Presets (`PresetGameSessions`)
+Maintain localized built-in presets for all 4 `AppLanguage` values (`EN`, `YO`, `HA`, `IG`):
+- 4 `TRIVIA_CHALLENGE` questions
+- 4 `WHO_AM_I` questions
+- 3 `SCRIPTURE_SCRAMBLE` questions
+- 5 Solo `QuizQuestion`s (used by fallback solo showdown)
+- Language pill shows `shortBadge` (`EN`, `YO`, `HA`, `IG`).
+
+---
+
+## 5. Solo Quiz Runner (`ActiveQuizRunner`)
+
+Triggered when playing a `/game_quizzes` card or solo fallback:
+- **Per-Question Timer Formula**:
+  `perQuestionSeconds = (quiz.timeLimitSeconds >= qCount * 5) ? clamp(Math.floor(quiz.timeLimitSeconds / qCount), 5, 120) : clamp(quiz.timeLimitSeconds, 5, 120)`
+- **4 Kahoot-Style Answer Cards** (full-width tactile buttons):
+  - Option 0 (`A`): `#E21B3C` with `▲`
+  - Option 1 (`B`): `#1368CE` with `◆`
+  - Option 2 (`C`): `#D89E00` with `●`
+  - Option 3 (`D`): `#26890C` with `■`
+  - Selecting locks choice & captures `lockedInTimeRemainingSeconds`; does **not** reveal right/wrong until timer hits `0`.
+- **Solo Scoring Formula**:
+  - `speedBonus = isCorrect ? clamp(Math.floor((Math.max(lockedTimeLeft, 1) / maxQTime) * 450), 0, 450) : 0`
+  - `pointsAwarded = isCorrect ? (550 + speedBonus) : 0` (up to `1000` pts/question).
+- **7-Second Intermission (`LiveIntermissionLeaderboardView`)**:
+  - Big countdown, Green/Amber/Red answer reveal card, Top 5 rows (`AnimatedQuizLeaderboardRow`), `"YOUR STANDING"` card, Scripture insight badge (`question.scriptureRef`), and `"Skip Wait → Next Question ({s}s)"` / `"See Final Results ({s}s) 🏆"`.
+- **Final Podium (`LiveGamePodiumView`)**:
+  - 100px / 140px / 80px podium pillars, Final Top 5, Individual Standing card, role callout (`GUEST` reminder vs member celebration).
+  - Non-`GUEST` players save to `/game_scores` with `score = correctCount` and `totalQuestions = questions.length`.
+
+---
+
+## 6. Bible Scripture Picker, Uploader & Reader
+
+Accessible from `"Bible DB"`, `"📖 PDF / EPUB Bible Reference & Uploader"`, `"Upload Bible"`, or `"From Bible"` buttons inside game/quiz creators:
+
+### 6.1 `BibleScripturePickerDialog` (2 Tabs)
+- **Header**: `"Executive Bible Reference"`, `"{count} Verses"` badge, `"Upload PDF/EPUB"` action, Close button.
+- **Tab 1 — `📖 Scripture Verses ({count})`**:
+  - Search bar matching `reference`, `verseText`, `book`, `theme`.
+  - Filter chip rows:
+    - **Version**: `All`, `KJV`, `NKJV`, `NIV`, `AMP` (+ any uploaded custom versions)
+    - **Theme**: `All`, `Exploits & Strength`, `Courage & Boldness`, `Youth & Purpose`, `Victory & Conquerors`, `Wisdom & Guidance`, `Faith & Trust`, `Gideonites Heritage`
+    - **Book**: shown dynamically when distinct books `> 2`
+  - Verse cards show reference, version, theme, verse text, `"Auto-Scramble Preview"` (first 6 words), and `"Select"` button.
+- **Tab 2 — `📄 PDF / EPUB Bibles ({count})`**:
+  - Includes pre-seeded `"Gideonites KJV Executive Reference Bible"` (`id: "bdoc_default_kjv"`).
+  - Actions: `"Upload PDF/EPUB"`, `"Sync 66-Book Reference Bible"`, `"Delete"` (disabled/hidden for `bdoc_default_kjv`), `"Open Bible"`.
+  - `"Open Bible"` launches **`UploadedBibleDocumentReaderDialog`**: Searchable Chapters/Sections list with 1-tap `"Use Verse"` button (returns section/verse to calling game/quiz builder). On web, if user uploaded a local PDF in-session (in memory/IndexedDB), render pages via `pdf.js`; for cloud-synced editions from other devices, show the synced Searchable Chapters text view cleanly.
+
+### 6.2 `UploadBibleDatabaseDialog` (3 Import Tabs)
+- Translation selector chips (7): `KJV`, `NKJV`, `NIV`, `AMP`, `Bibeli Mimo (YO)`, `Littafi Mai Tsarki (HA)`, `Baịbụl Nsọ (IG)`.
+- `"Sync 66-Book Reference Bible"` button (syncs curated multi-book verse pack).
+- **Tab 1: `PDF / EPUB`**: File picker accepting `.pdf` and `.epub`. Extract text & verses client-side (use `pdfjs-dist` for PDF and `JSZip` + DOMParser for EPUB `.xhtml`/`.html` spine entries) -> creates both a Bible edition document and extracted verse pack.
+- **Tab 2: `Line / Text`**: Multi-line input accepting pipe-delimited format `Reference | Verse Text | Translation | Theme` + `"Fill Sample Data"` helper.
+- **Tab 3: `JSON`**: JSON array import + `"Fill Sample Data"` helper.
+
+---
+
+## 7. Exact Firestore Collections, Schemas & Security Rules
+
+Every document MUST obey `firestore.rules`:
+- Valid document IDs: `^[a-zA-Z0-9_\-]+$` (1..128 chars).
+- `fellowshipId == "GIDEONITES"`.
+- `createdAt` and `updatedAt` MUST use `serverTimestamp()` (`<= request.time`).
+
+### 7.1 `/quiz_sessions/{sessionId}` (ID must start with `quiz_`)
+- **Required (`hasAll`)**: `hostId`, `hostName`, `fellowshipId`, `roomPin`, `titleEn`, `gameType`, `status`, `currentQuestionIndex`, `totalQuestions`, `participantCount`, `createdAt`, `updatedAt`.
+- **Allowed (`hasOnly` — exact 28 keys max)**: the 12 required keys + `titleYo`, `titleHa`, `titleIg`, `description`, `scheduledStartTime`, `timeLimitPerQuestionSeconds`, `leaderboardDurationSeconds`, `currentSubstate`, `currentQuestionDeadline`, `leaderboardDeadline`, `baseScorePerQuestion`, `speedBonusEnabled`, `maxSpeedBonus`, `penaltyForIncorrect`, `questionsJson`, `participantsJson`.
+- **Strict Rules & Bounds**:
+  - `roomPin`: 4..12 chars
+  - `status`: `'DRAFT' | 'SCHEDULED' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED'`
+  - `currentSubstate`: `'WAITING_TO_START' | 'QUESTION_OPEN' | 'LEADERBOARD'`
+  - `timeLimitPerQuestionSeconds`: `1..600`
+  - `leaderboardDurationSeconds`: `1..600`
+  - `baseScorePerQuestion`: `1..10000`
+  - `maxSpeedBonus`: `0..5000`
+  - `totalQuestions`: `1..500`
+  - `questionsJson` & `participantsJson`: `<= 100,000` chars each.
+  - **Host/Admin updates**: Allowed ONLY when existing `status` is NOT `'COMPLETED'` and NOT `'CANCELLED'`.
+  - **Non-host updates (players joining / submitting scores)**:
+    - Can ONLY modify `['participantCount', 'participantsJson', 'updatedAt']` (using `.affectedKeys().hasOnly(...)`).
+    - Existing `status` MUST NOT be `'CANCELLED'` (allowed in `'SCHEDULED'`, `'ACTIVE'`, or `'COMPLETED'`).
+    - `incoming.participantCount >= existing.participantCount && incoming.participantCount <= existing.participantCount + 10`.
+    - **MUST use `runTransaction`** + merge existing `participantsJson` by `userId` taking `max(currentScore)`, `max(answeredQuestionsCount)`, stripping any `peer-` IDs, and writing `participantCount = max(existingCount, mergedList.length)`.
+- **`questionsJson` item keys**: `id`, `gameType`, `prompt`, `options` (`string[]`), `correctAnswer`, `clues` (`string[]`), `scrambledWords` (`string[]`), `scriptureReference`, `translation`, `timerSeconds`, `points`, `explanation`.
+- **`participantsJson` item keys**: `id`, `userId`, `userName`, `userRole`, `joinedAt`, `joinedAtQuestionIndex`, `currentScore`, `lastQuestionPoints`, `lastAnswerTimestamp`, `answeredQuestionsCount`.
+
+### 7.2 `/game_quizzes/{quizId}`
+- `hasAll`: `createdById`, `fellowshipId`, `title`, `category`, `questionsJson`, `totalQuestions`, `timeLimitSeconds`, `difficulty`, `createdAt`, `updatedAt`.
+- `hasOnly`: above + `description`.
+- Bounds: `totalQuestions` `1..500`, `timeLimitSeconds` `10..7200`.
+- Solo `questionsJson` item keys: `id`, `question`, `options` (`string[]`), `correctAnswerIndex` (`number`), `scriptureRef`.
+
+### 7.3 `/game_scores/{scoreId}`
+- `hasAll` & `hasOnly`: `quizId`, `quizTitle`, `userId`, `userName`, `fellowshipId`, `score`, `totalQuestions`, `timeTakenSeconds`, `completedAt`, `createdAt`, `updatedAt`.
+- Update rule forbids changing `userId` or `quizId`.
+- Multiplayer idempotency key convention: `mp-score-{sessionId}-{userId}`.
+
+### 7.4 `/daily_scriptures/{scriptureId}` (Shared Bible Editions & Packs Storage)
+- **Bible Edition (`scripture_bibledoc_{editionId}`)**:
+  - `dateKey = "BIBLE_EDITION"`
+  - `prayerPromptEn = JSON.stringify({ category: "BIBLE_DOCUMENT", editionId, title, translation, fileFormat, fileName, pageOrChapterCount, extractedVersesCount, uploadedAt })`
+  - Sections array (`[{ t, b, c, x }]`, max 30 sections, `t <= 100`, `b <= 40`, `c <= 700` chars) serialized to JSON and chunked across:
+    - `reflectionEn` (`0..3000`)
+    - `reflectionYo` (`3000..6000`)
+    - `reflectionHa` (`6000..9000`)
+    - `reflectionIg` (`9000..12000`)
+    - `verseTextYo` (`12000..14000`)
+    - `verseTextHa` (`14000..16000`)
+- **Verse Pack (`scripture_biblepack_{cleanBatchKey}_{chunkIdx}`)**:
+  - `dateKey = "BIBLE_PACK"`
+  - `prayerPromptEn = JSON.stringify({ category: "BIBLE_VERSE_PACK", batchKey, chunkIdx })`
+  - Up to 4 chunks of 35 compact verse objects (`[{ r, t, v, m }]`) chunked across `reflectionEn`..`reflectionIg`.
+
+### 7.5 `/fellowship_notifications/{notificationId}`
+- `type == "GAME_TIME"`. Sent only on live launch / scheduling (`status !== "DRAFT"`), `"Start Now"`, or `"📢 Alert All"`.
+
+---
+
+## 8. Known Bugs, Discrepancies & PWA / iOS Safari Issues to Handle Explicitly
+
+Pay special attention to every item below so the PWA does not break or lose data:
+
+1. **CRITICAL — Never Wipe Local Cache or Cloud Data on Login / Startup:**
+   - A previous bug wiped events/posts on startup before cloud listeners delivered data. Never clear IndexedDB / Zustand / Firestore persistence cache on login before snapshots arrive, and ensure Firestore listeners (`quiz_sessions`, `game_quizzes`, `game_scores`, `daily_scriptures`) attach immediately upon auth resolution with offline persistence enabled (`persistentLocalCache` + `persistentMultipleTabManager` fallback).
+2. **CRITICAL — Filter Out `BIBLE_EDITION` & `BIBLE_PACK` in Devotionals, and `DRAFT` in Member Games Views:**
+   - Bible editions and verse packs are stored inside `/daily_scriptures` using `dateKey: "BIBLE_EDITION"` and `dateKey: "BIBLE_PACK"`. The Spiritual/Devotionals query/UI **MUST** exclude those `dateKey`s so Bible JSON chunks never appear as daily scriptures.
+   - `/quiz_sessions` stores `status: "DRAFT"` in the same collection as live/scheduled games. Ensure `YOUTH_MEMBER` and `GUEST` UI **never** render `DRAFT` sessions or receive notifications for drafts.
+3. **CRITICAL — Firestore `firestore.rules` Admin Email Check (`isAdmin()`) vs App Role:**
+   - Check how `firestore.rules` authenticates `ADMINISTRATOR` vs `YOUTH_EXECUTIVE` mutations: in rules, `isAdmin()` or executive checks validate authenticated Firebase Auth custom claims / email / `users/{uid}` role doc. Ensure `/quiz_sessions`, `/game_quizzes`, `/game_scores`, and `/daily_scriptures` writes map properly to the signed-in Firebase Auth UID (`hostId == auth.uid`) and never attempt non-host forbidden keys (`only participantCount, participantsJson, updatedAt` for players) or updates on `COMPLETED`/`CANCELLED` sessions.
+4. **Mixed Score Scales in `/game_scores` & Kingdom Rank Formula:**
+   - Solo quizzes (`ActiveQuizRunner`) write `score = correctCount` (e.g., `4`) and `totalQuestions = questionCount` (e.g., `5`), whereas Multiplayer Arena writes `score = totalPoints` (e.g., `420`) and `totalQuestions = max(rounds * baseScore, 100)` (e.g., `400`). Both read into `Youth Global Leaderboard` and `bestScore`. Either preserve the exact `kingdomRankTitle` dual-range check (`bestScore >= 300 || bestScore in 8..50`, etc.) and render both formats cleanly without breaking percentage bars.
+5. **Simulated Peers Discrepancy (`ActiveQuizRunner` vs `MultiplayerGameArena`):**
+   - `ActiveQuizRunner` simulates 6 local NPC peers (`Sister Grace`, `Brother Samuel`, `Brother David O.`, `Sister Faith`, `Brother Emmanuel`, `Sister Chisom`), whereas `MultiplayerGameArena` strictly uses real connected players (`peer-` entries are stripped in `mergeParticipantsJson`). Preserve real-only players in Multiplayer and do not accidentally write `peer-` records into `/quiz_sessions`.
+6. **Game Type Switch & Draft Edit Quirks in `CreateMultiplayerGameDialog`:**
+   - In Android, clicking another `GameType` card immediately overwrites `questions` with that mode's presets (wiping unsaved custom/draft questions), and editing a `DRAFT` resets `scheduledDelayMinutes` to `0` (`Start Now`). In the PWA, either show a brief inline confirmation before wiping non-preset edited questions on mode switch, and explicitly make the user aware `Save Draft` vs `Launch Showdown Now` is controlled by the delay chips (`0` = Launch Now, `>0` = Schedule).
+7. **Admin vs Youth Executive Permission Asymmetries:**
+   - Note that in Android, `YOUTH_EXECUTIVE` can create/schedule/start/cancel/end Multiplayer games, manage Drafts, launch Solo Quiz creation, and upload Bible DBs—**but** Featured Quizzes delete icons, Empty-state `"+ Create First Scripture Quiz"` CTA, Leaderboard score delete icons, and `"Live Rankings"` pill check `role === "ADMINISTRATOR"` specifically. Mirror or align consistently with `firestore.rules` so no UI button triggers a `PERMISSION_DENIED` error!
+8. **Uploaded PDF Binary Not Synced Cross-Device:**
+   - Because Bible editions are stored solely in `/daily_scriptures` as max 30 sections x 700 chars truncated across ~16,000 characters (no Firebase Storage PDF binary URL), a PDF uploaded on Android or another browser will **not** have a renderable raw PDF file on a different PWA device—only its parsed chapters/sections. Always render the `"Searchable Chapters & Verses"` reader seamlessly when the raw file isn't cached locally on the device.
+9. **iOS Safari & PWA Timer Throttling (`visibilitychange` Desync):**
+   - Never drive question or intermission countdowns by decrementing a `setInterval` counter in React/JS state. iOS Safari suspends timers aggressively when the screen dims, app-switches, or a notification banner drops. Always compute remaining time as `Math.max(0, deadlineMs - Date.now())` and immediately re-run `syncSessionState` on `visibilitychange`, `focus`, and `pageshow`.
+10. **Host vs Client Clock Skew:**
+    - Mobile devices (especially PWA vs Android) can have clocks off by 1–3 seconds. Clamp displayed remaining time to `[0, qTimeLimit]`, keep the `1500ms` non-host grace window before clients locally advance state, and treat host's `onSnapshot` timestamps as authoritative.
+11. **`participantsJson` Transaction Collisions & 100KB Limit:**
+    - Multiple players answering at the exact end of a round will collide if updating `participantsJson` with plain `updateDoc`. **Always** use `runTransaction`, enforce `participantCount` within `[existing, existing + 10]`, never write to a `CANCELLED` session, and keep `questionsJson` + `participantsJson` compact under `100,000` characters each.
+12. **iOS Safari UI, Touch & Notification Constraints:**
+    - Use `min-h-[100dvh]`, `env(safe-area-inset-top/bottom)`, and `overscroll-behavior: contain` inside arena/modals so Safari toolbars and rubber-banding never obscure the bottom `"Submit Verse"` or `"Save Draft / Launch"` buttons.
+    - Apply `touch-action: manipulation` on Trivia `A/B/C/D` buttons and Scramble word chips to eliminate 300ms tap delay and accidental double-tap zoom during speed-bonus rounds.
+    - Use `flex-wrap` on all chip/action rows (Schedule chips, Timer chips, Draft buttons, Question header buttons, Bottom dialog buttons) so nothing clips off `320px–390px` mobile screens.
+    - Web Push (`GAME_TIME` alerts) on iOS **only** works on iOS 16.4+ when installed to Home Screen (`display-mode: standalone`) and requested inside a direct user gesture; pair Web Push with an in-app live Firestore `/fellowship_notifications` toast/banner fallback for browser-tab users.
+    - Gate any sound effects or vibration (`navigator.vibrate` is unsupported on iOS Safari) behind user-gesture audio unlock and graceful feature checks so nothing throws on Safari.
