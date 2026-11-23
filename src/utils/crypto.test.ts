@@ -17,8 +17,14 @@ test('PBKDF2-HMAC-SHA256 hashes and verifies matching password', async () => {
   });
   assert.equal(ok, true);
 
+  const androidOk = await verifyPassword('Gideonites#2026', {
+    salt: hashed.saltBase64,
+    passwordHash: hashed.hashBase64,
+  });
+  assert.equal(androidOk, true);
+
   const wrong = await verifyPassword('WrongPass', {
-    passwordSalt: hashed.saltBase64,
+    salt: hashed.saltBase64,
     passwordHash: hashed.hashBase64,
   });
   assert.equal(wrong, false);

@@ -25,7 +25,9 @@ import {
   handleFirestoreError,
 } from './firebase';
 import { hashPassword, verifyPassword } from '../utils/crypto';
+import { normalizeLanguageCode } from '../data/translations';
 import {
+  buildNewAccountFirestoreDoc,
   buildReminderSchedule,
   chunkStringForFirestore,
   computeProgrammeEndDateMillis,
@@ -38,6 +40,9 @@ import {
   isEventDatePassed,
   isForumPostExpired,
   isWithinFirestoreDocLimit,
+  normalizeAccountRoleForFirestore,
+  normalizeDepartmentType,
+  normalizeLanguageForFirestore,
   parseJsonArray,
   serializeCommentsWithinLimit,
   type ParsedBibleVerse,
@@ -367,28 +372,49 @@ export async function ensureAdminAccountExists(): Promise<FellowshipAccount> {
   }
 
   const hashed = await hashPassword('AdminPass#2026');
-  const adminAccount: FellowshipAccount = {
-    id: ADMIN_DOC_ID,
+  const now = Date.now();
+  const adminFirestoreDoc = {
+    userId: ADMIN_DOC_ID,
     fellowshipId: FELLOWSHIP_ID,
     fullName: 'Admin',
     email: 'admin@youthalive.org',
-    phoneNumber: '08000000001',
-    password: hashed.combined,
-    passwordSalt: hashed.saltBase64,
+    phone: '08000000001',
+    salt: hashed.saltBase64,
     passwordHash: hashed.hashBase64,
-    role: 'ADMINISTRATOR',
-    status: 'APPROVED',
-    department: 'Executive Council',
-    preferredLanguage: 'EN',
-    createdAt: Date.now(),
+    role: 'ADMINISTRATOR' as const,
+    status: 'APPROVED' as const,
+    department: 'GENERAL',
+    preferredLanguage: 'en',
+    englishOverride: false,
+    xpPoints: 0,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   };
 
   try {
-    await setDoc(ref, adminAccount);
+    await setDoc(ref, adminFirestoreDoc);
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, `${COLLECTIONS.ACCOUNTS}/${ADMIN_DOC_ID}`, true);
   }
-  return adminAccount;
+  return {
+    id: ADMIN_DOC_ID,
+    userId: ADMIN_DOC_ID,
+    fellowshipId: FELLOWSHIP_ID,
+    fullName: 'Admin',
+    email: 'admin@youthalive.org',
+    phone: '08000000001',
+    phoneNumber: '08000000001',
+    salt: hashed.saltBase64,
+    passwordHash: hashed.hashBase64,
+    role: 'ADMINISTRATOR',
+    status: 'APPROVED',
+    department: 'GENERAL',
+    preferredLanguage: 'EN',
+    englishOverride: false,
+    xpPoints: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 export async function signInWithCredentials(
@@ -485,38 +511,63 @@ export async function registerFellowshipAccount(params: {
 
   const hashed = await hashPassword(params.password);
   const newId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const status = params.role === 'EXECUTIVE' ? 'PENDING' : 'APPROVED';
+  const normalizedRole = normalizeAccountRoleForFirestore(params.role);
+  const role: Exclude<UserRole, 'ADMINISTRATOR'> =
+    normalizedRole === 'ADMINISTRATOR' ? 'YOUTH_MEMBER' : normalizedRole;
+  const status = role === 'YOUTH_EXECUTIVE' ? 'PENDING' : 'APPROVED';
+  const normalizedDept = normalizeDepartmentType(params.department);
+  const now = Date.now();
 
-  const account: FellowshipAccount = {
-    id: newId,
+  const firestoreDoc = buildNewAccountFirestoreDoc({
+    userId: newId,
     fellowshipId: FELLOWSHIP_ID,
     fullName: params.fullName.trim(),
     email: emailLower,
-    phoneNumber: params.phoneNumber.trim(),
     phone: params.phoneNumber.trim(),
-    password: hashed.combined,
-    passwordSalt: hashed.saltBase64,
+    salt: hashed.saltBase64,
     passwordHash: hashed.hashBase64,
-    role: params.role,
+    role,
     status,
-    department: params.department,
+    department: normalizedDept,
     preferredLanguage: params.preferredLanguage,
-    createdAt: Date.now(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  const account: FellowshipAccount = {
+    id: newId,
+    userId: newId,
+    fellowshipId: FELLOWSHIP_ID,
+    fullName: params.fullName.trim(),
+    email: emailLower,
+    phone: params.phoneNumber.trim(),
+    phoneNumber: params.phoneNumber.trim(),
+    salt: hashed.saltBase64,
+    passwordHash: hashed.hashBase64,
+    role,
+    status,
+    department: normalizedDept,
+    preferredLanguage: normalizeLanguageCode(params.preferredLanguage),
+    englishOverride: false,
+    xpPoints: 0,
+    createdAt: now,
+    updatedAt: now,
   };
 
   try {
-    await setDoc(doc(db, COLLECTIONS.ACCOUNTS, newId), account);
-    if (status === 'PENDING') {
-      await createNotification({
-        dedupKey: `acc:${newId}`,
-        title: 'New Youth Executive Request',
-        message: `${account.fullName} (${account.department}) requested Youth Executive access.`,
-        type: 'APPROVAL',
-        targetRole: 'ADMINISTRATOR',
-      });
-    }
+    await setDoc(doc(db, COLLECTIONS.ACCOUNTS, newId), firestoreDoc);
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, `${COLLECTIONS.ACCOUNTS}/${newId}`);
+  }
+
+  if (status === 'PENDING') {
+    await createNotification({
+      dedupKey: `acc:${newId}`,
+      title: 'New Youth Executive Request',
+      message: `${account.fullName} (${normalizedDept}) requested Youth Executive access.`,
+      type: 'APPROVAL',
+      targetRole: 'ADMINISTRATOR',
+    }).catch(() => {});
   }
 
   saveAccountId(account.id);
@@ -548,22 +599,48 @@ export async function signInWithGoogleAccount(): Promise<FellowshipAccount> {
   }
 
   const newId = `user-g-${gUser.uid.slice(0, 12)}`;
+  const now = Date.now();
+  const displayName = gUser.displayName || email.split('@')[0];
+  const phone = gUser.phoneNumber || '';
+  const photo = gUser.photoURL || undefined;
+
+  const firestoreDoc = buildNewAccountFirestoreDoc({
+    userId: newId,
+    fellowshipId: FELLOWSHIP_ID,
+    fullName: displayName,
+    email,
+    phone,
+    role: 'YOUTH_MEMBER',
+    status: 'APPROVED',
+    department: 'MEDIA',
+    preferredLanguage: 'EN',
+    profilePhotoUri: photo,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
   const account: FellowshipAccount = {
     id: newId,
+    userId: newId,
     fellowshipId: FELLOWSHIP_ID,
-    fullName: gUser.displayName || email.split('@')[0],
+    fullName: displayName,
     email,
-    phoneNumber: gUser.phoneNumber || '',
-    role: 'MEMBER',
+    phone,
+    phoneNumber: phone,
+    role: 'YOUTH_MEMBER',
     status: 'APPROVED',
-    department: 'Media & Technical',
+    department: 'MEDIA',
     preferredLanguage: 'EN',
-    avatarUrl: gUser.photoURL || undefined,
-    createdAt: Date.now(),
+    englishOverride: false,
+    xpPoints: 0,
+    profilePhotoUri: photo,
+    avatarUrl: photo,
+    createdAt: now,
+    updatedAt: now,
   };
 
   try {
-    await setDoc(doc(db, COLLECTIONS.ACCOUNTS, newId), account);
+    await setDoc(doc(db, COLLECTIONS.ACCOUNTS, newId), firestoreDoc);
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, `${COLLECTIONS.ACCOUNTS}/${newId}`);
   }
@@ -602,19 +679,23 @@ export async function updateAccountProfile(
   if (silent && !auth.currentUser) {
     return;
   }
-  const { userId: explicitUid, ...rest } = updates;
+  const { userId: explicitUid, phoneNumber, avatarUrl, ...rest } = updates;
   const sanitized: Record<string, unknown> = {
-    ...rest,
-    updatedAt: Date.now(),
+    updatedAt: serverTimestamp(),
   };
-  if (rest.phone !== undefined && rest.phoneNumber === undefined) {
-    sanitized.phoneNumber = rest.phone;
-  } else if (rest.phoneNumber !== undefined && rest.phone === undefined) {
-    sanitized.phone = rest.phoneNumber;
+  if (rest.fullName !== undefined) sanitized.fullName = rest.fullName;
+  if (rest.email !== undefined) sanitized.email = rest.email;
+  const resolvedPhone = rest.phone ?? phoneNumber;
+  if (resolvedPhone !== undefined) sanitized.phone = resolvedPhone;
+  if (rest.address !== undefined) sanitized.address = rest.address;
+  if (rest.department !== undefined) {
+    sanitized.department = normalizeDepartmentType(rest.department);
   }
-  if (rest.profilePhotoUri !== undefined && rest.avatarUrl === undefined) {
-    sanitized.avatarUrl = rest.profilePhotoUri;
+  if (rest.preferredLanguage !== undefined) {
+    sanitized.preferredLanguage = normalizeLanguageForFirestore(rest.preferredLanguage);
   }
+  const resolvedPhoto = rest.profilePhotoUri ?? avatarUrl;
+  if (resolvedPhoto !== undefined) sanitized.profilePhotoUri = resolvedPhoto;
   if (accountId === ADMIN_DOC_ID) {
     sanitized.fullName = 'Admin';
   }
@@ -666,7 +747,7 @@ export async function setExecutiveAccountStatus(
   try {
     await updateDoc(doc(db, COLLECTIONS.ACCOUNTS, accountId), {
       status,
-      updatedAt: Date.now(),
+      updatedAt: serverTimestamp(),
     });
     await createNotification({
       dedupKey: `acc-status:${accountId}:${status}`,
@@ -675,7 +756,7 @@ export async function setExecutiveAccountStatus(
       type: 'APPROVAL',
       recipientUserId: accountId,
       targetRole: 'ALL',
-    });
+    }).catch(() => {});
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, `${COLLECTIONS.ACCOUNTS}/${accountId}`);
   }
@@ -3079,8 +3160,8 @@ export async function assignMemberToDepartment(
   }
   try {
     await updateDoc(doc(db, COLLECTIONS.ACCOUNTS, accountId), {
-      department,
-      updatedAt: Date.now(),
+      department: normalizeDepartmentType(department),
+      updatedAt: serverTimestamp(),
     });
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, `${COLLECTIONS.ACCOUNTS}/${accountId}`, true);
@@ -3145,25 +3226,22 @@ export async function clearDatabasePreserveAdminOnly(): Promise<number> {
     await setDoc(
       doc(db, COLLECTIONS.ACCOUNTS, ADMIN_DOC_ID),
       {
-        id: ADMIN_DOC_ID,
         userId: ADMIN_DOC_ID,
         fellowshipId: FELLOWSHIP_ID,
         fullName: 'Admin',
         email: 'admin@youthalive.org',
         phone: '+2348011223344',
-        phoneNumber: '+2348011223344',
-        password: hashed.combined,
-        passwordSalt: hashed.saltBase64,
+        salt: hashed.saltBase64,
         passwordHash: hashed.hashBase64,
         role: 'ADMINISTRATOR',
         status: 'APPROVED',
         department: 'GENERAL',
         fellowshipGroup: 'Central Administration',
-        preferredLanguage: 'EN',
+        preferredLanguage: 'en',
         englishOverride: false,
         xpPoints: 0,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       },
       { merge: true }
     );

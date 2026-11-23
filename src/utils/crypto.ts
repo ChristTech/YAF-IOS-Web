@@ -90,6 +90,7 @@ export async function hashPassword(password: string): Promise<{
 export async function verifyPassword(
   candidatePassword: string,
   account: {
+    salt?: string;
     passwordSalt?: string;
     passwordHash?: string;
     password?: string;
@@ -97,10 +98,11 @@ export async function verifyPassword(
 ): Promise<boolean> {
   if (!candidatePassword) return false;
 
-  // 1. Explicit passwordSalt + passwordHash fields (Android/Web standard)
-  if (account.passwordSalt && account.passwordHash) {
+  // 1. Explicit salt / passwordSalt + passwordHash fields (Android/Web standard)
+  const resolvedSalt = (account.salt || account.passwordSalt || '').trim();
+  if (resolvedSalt && account.passwordHash) {
     try {
-      const saltBytes = base64ToBytes(account.passwordSalt.trim());
+      const saltBytes = base64ToBytes(resolvedSalt);
       const derived = await derivePbkdf2Hash(candidatePassword, saltBytes);
       if (constantTimeEqual(derived, account.passwordHash.trim())) {
         return true;

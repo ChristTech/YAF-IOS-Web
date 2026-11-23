@@ -1078,6 +1078,73 @@ export function canManageFellowship(role?: string | null): boolean {
   return upper === 'ADMINISTRATOR' || upper === 'ADMIN' || upper.includes('EXECUTIVE') || upper === 'EXCO';
 }
 
+export type FirestoreAccountRole = 'YOUTH_MEMBER' | 'YOUTH_EXECUTIVE' | 'GUEST' | 'ADMINISTRATOR';
+
+export function normalizeAccountRoleForFirestore(role?: string | null): FirestoreAccountRole {
+  const upper = (role || '').trim().toUpperCase();
+  if (upper === 'ADMINISTRATOR' || upper === 'ADMIN') return 'ADMINISTRATOR';
+  if (upper === 'YOUTH_EXECUTIVE' || upper === 'EXECUTIVE' || upper === 'EXCO') {
+    return 'YOUTH_EXECUTIVE';
+  }
+  if (upper === 'GUEST') return 'GUEST';
+  return 'YOUTH_MEMBER';
+}
+
+export function normalizeLanguageForFirestore(lang?: string | null): 'en' | 'yo' | 'ha' | 'ig' {
+  const lower = (lang || '').trim().toLowerCase();
+  if (lower === 'yo') return 'yo';
+  if (lower === 'ha') return 'ha';
+  if (lower === 'ig') return 'ig';
+  return 'en';
+}
+
+export function buildNewAccountFirestoreDoc<TCreated = unknown>(params: {
+  userId: string;
+  fellowshipId?: string;
+  fullName: string;
+  email: string;
+  phone?: string;
+  salt?: string;
+  passwordHash?: string;
+  role?: string | null;
+  status?: 'APPROVED' | 'PENDING';
+  department?: string | null;
+  preferredLanguage?: string | null;
+  profilePhotoUri?: string;
+  createdAt: TCreated;
+  updatedAt: TCreated;
+}): Record<string, unknown> {
+  const normalizedRole = normalizeAccountRoleForFirestore(params.role);
+  const resolvedRole = normalizedRole === 'ADMINISTRATOR' ? 'YOUTH_MEMBER' : normalizedRole;
+  const resolvedStatus =
+    params.status ?? (resolvedRole === 'YOUTH_EXECUTIVE' ? 'PENDING' : 'APPROVED');
+
+  const doc: Record<string, unknown> = {
+    userId: params.userId,
+    fellowshipId: params.fellowshipId || 'GIDEONITES',
+    fullName: params.fullName.trim(),
+    email: params.email.trim().toLowerCase(),
+    phone: (params.phone || '').trim(),
+    role: resolvedRole,
+    status: resolvedStatus,
+    department: normalizeDepartmentType(params.department),
+    preferredLanguage: normalizeLanguageForFirestore(params.preferredLanguage),
+    englishOverride: false,
+    xpPoints: 0,
+    createdAt: params.createdAt,
+    updatedAt: params.updatedAt,
+  };
+
+  if (params.salt && params.passwordHash) {
+    doc.salt = params.salt;
+    doc.passwordHash = params.passwordHash;
+  }
+  if (params.profilePhotoUri && params.profilePhotoUri.trim()) {
+    doc.profilePhotoUri = params.profilePhotoUri.trim();
+  }
+  return doc;
+}
+
 export const SAFE_FIRESTORE_DOC_BYTES = 950_000;
 
 export function estimatePayloadBytes(payload: unknown): number {

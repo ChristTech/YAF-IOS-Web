@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import { Eye, EyeOff, Lock, Mail, Moon, Phone, Sun, User } from 'lucide-react';
 import { ChurchLogoBadge } from './ChurchLogoBadge';
 import { IOSInstallBanner } from './PWAInstallUI';
-import { DEPARTMENT_NAMES } from '../data/bibleData';
+import { ALL_DEPARTMENT_TYPES } from '../data/bibleData';
 import {
   registerFellowshipAccount,
   signInWithCredentials,
   signInWithGoogleAccount,
 } from '../services/fellowshipService';
+import { formatActionErrorMessage } from '../utils/fellowshipLogic';
 import type { FellowshipAccount, LanguageCode, UserRole } from '../types/fellowship';
 
 interface AuthScreenProps {
@@ -31,8 +32,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [regPassword, setRegPassword] = useState('');
-  const [role, setRole] = useState<Exclude<UserRole, 'ADMINISTRATOR'>>('MEMBER');
-  const [department, setDepartment] = useState(DEPARTMENT_NAMES[0]);
+  const [role, setRole] = useState<Exclude<UserRole, 'ADMINISTRATOR'>>('YOUTH_MEMBER');
+  const [department, setDepartment] = useState<string>(ALL_DEPARTMENT_TYPES[0].type);
   const [preferredLanguage, setPreferredLanguage] = useState<LanguageCode>('EN');
 
   const [loading, setLoading] = useState(false);
@@ -46,7 +47,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       const account = await signInWithCredentials(identifier, password);
       onAuthenticated(account);
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Sign-in failed.');
+      setErrorMsg(formatActionErrorMessage(err, 'Sign-in failed.'));
     } finally {
       setLoading(false);
     }
@@ -68,7 +69,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       });
       onAuthenticated(account);
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Registration failed.');
+      setErrorMsg(formatActionErrorMessage(err, 'Registration failed.'));
     } finally {
       setLoading(false);
     }
@@ -81,7 +82,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       const account = await signInWithGoogleAccount();
       onAuthenticated(account);
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Google sign-in could not be completed.');
+      setErrorMsg(formatActionErrorMessage(err, 'Google sign-in could not be completed.'));
     } finally {
       setLoading(false);
     }
@@ -326,8 +327,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       onChange={(e) => setRole(e.target.value as Exclude<UserRole, 'ADMINISTRATOR'>)}
                       className="w-full min-h-[44px] px-3 rounded-xl bg-[#F8FAFC] dark:bg-[#1F2937] border border-[#E2E8F0] dark:border-[#374151] text-sm text-[#0F172A] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E11D48]"
                     >
-                      <option value="MEMBER">Youth Member</option>
-                      <option value="EXECUTIVE">Youth Executive</option>
+                      <option value="YOUTH_MEMBER">Youth Member</option>
+                      <option value="YOUTH_EXECUTIVE">Youth Executive</option>
                       <option value="GUEST">Guest</option>
                     </select>
                   </div>
@@ -365,15 +366,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     onChange={(e) => setDepartment(e.target.value)}
                     className="w-full min-h-[44px] px-3 rounded-xl bg-[#F8FAFC] dark:bg-[#1F2937] border border-[#E2E8F0] dark:border-[#374151] text-sm text-[#0F172A] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E11D48]"
                   >
-                    {DEPARTMENT_NAMES.map((dept) => (
-                      <option key={dept} value={dept}>
-                        {dept}
+                    {ALL_DEPARTMENT_TYPES.map((dept) => (
+                      <option key={dept.type} value={dept.type}>
+                        {dept.label}
                       </option>
                     ))}
                   </select>
                 </div>
 
-                {role === 'EXECUTIVE' && (
+                {(role === 'YOUTH_EXECUTIVE' || role === 'EXECUTIVE') && (
                   <p className="text-xs text-[#F59E0B] font-medium">
                     Note: Youth Executive registrations require Administrator approval in the Command Centre.
                   </p>

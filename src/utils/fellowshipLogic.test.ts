@@ -6,6 +6,7 @@ import {
   buildAttendanceCsv,
   buildCsvContent,
   buildFinancesCsv,
+  buildNewAccountFirestoreDoc,
   buildPassMailtoHref,
   buildProgrammeIcsContent,
   buildReminderSchedule,
@@ -41,9 +42,11 @@ import {
   isTuesdayDate,
   isUserRegisteredForProgramme,
   isWithinFirestoreDocLimit,
+  normalizeAccountRoleForFirestore,
   normalizeDepartmentType,
   normalizeForumCategory,
   normalizeInquiryStatus,
+  normalizeLanguageForFirestore,
   parseJsonArray,
   parseLineOrJsonBibleVerses,
   scrambleWord,
@@ -666,3 +669,45 @@ test('isEventDatePassed keeps same-day events visible until midnight, expires ye
   assert.equal(active.length, 1);
   assert.equal(active[0].id, 'prog_today');
 });
+
+test('buildNewAccountFirestoreDoc enforces Android fellowship_accounts schema parity', () => {
+  assert.equal(normalizeAccountRoleForFirestore('MEMBER'), 'YOUTH_MEMBER');
+  assert.equal(normalizeAccountRoleForFirestore('EXECUTIVE'), 'YOUTH_EXECUTIVE');
+  assert.equal(normalizeAccountRoleForFirestore('GUEST'), 'GUEST');
+  assert.equal(normalizeLanguageForFirestore('YO'), 'yo');
+  assert.equal(normalizeLanguageForFirestore('EN'), 'en');
+
+  const doc = buildNewAccountFirestoreDoc({
+    userId: 'user-test-123',
+    fullName: '  Samuel Adeyemi  ',
+    email: '  Samuel@Example.com ',
+    phone: ' 08012345678 ',
+    salt: 'salt123==',
+    passwordHash: 'hash456=',
+    role: 'EXECUTIVE',
+    department: 'Media & Technical Team',
+    preferredLanguage: 'YO',
+    createdAt: 1000,
+    updatedAt: 1000,
+  });
+
+  assert.equal(doc.userId, 'user-test-123');
+  assert.equal(doc.fellowshipId, 'GIDEONITES');
+  assert.equal(doc.fullName, 'Samuel Adeyemi');
+  assert.equal(doc.email, 'samuel@example.com');
+  assert.equal(doc.phone, '08012345678');
+  assert.equal(doc.salt, 'salt123==');
+  assert.equal(doc.passwordHash, 'hash456=');
+  assert.equal(doc.role, 'YOUTH_EXECUTIVE');
+  assert.equal(doc.status, 'PENDING');
+  assert.equal(doc.department, 'MEDIA');
+  assert.equal(doc.preferredLanguage, 'yo');
+  assert.equal(doc.englishOverride, false);
+  assert.equal(doc.xpPoints, 0);
+  assert.equal('id' in doc, false);
+  assert.equal('phoneNumber' in doc, false);
+  assert.equal('password' in doc, false);
+  assert.equal('passwordSalt' in doc, false);
+  assert.equal('avatarUrl' in doc, false);
+});
+

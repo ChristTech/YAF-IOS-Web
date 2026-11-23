@@ -27,6 +27,7 @@ export interface FellowshipAccount {
   address?: string;
   fellowshipGroup?: string;
   password?: string;
+  salt?: string;
   passwordHash?: string;
   passwordSalt?: string;
   role: UserRole;
