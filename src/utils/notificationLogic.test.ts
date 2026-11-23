@@ -382,3 +382,48 @@ test('synthesizeNotificationFromFirestoreChange formats audio sermon alerts and 
   assert.equal(audioSermon.title, '🎧 New Audio Sermon: Power of Faith');
 });
 
+test('mergeAndFilterNotifications prevents duplicate React keys when firestore and SSE/synthesized alerts share id with differing dedupKey', () => {
+  const member = { id: 'mem-1', role: 'MEMBER' as const };
+  const firestoreDocWithoutDedup: FellowshipNotification = {
+    id: 'notif_comment_cmt_1795354221413_adob',
+    fellowshipId: 'GIDEONITES',
+    title: 'New comment on post',
+    message: 'Amen!',
+    type: 'COMMUNITY_POST',
+    targetRole: 'ALL',
+    readByJson: '[]',
+    createdAt: 1000,
+  };
+  const sseWrappedNotif: FellowshipNotification = {
+    id: 'notif_comment_cmt_1795354221413_adob',
+    dedupKey: 'notif:notif_comment_cmt_1795354221413_adob',
+    fellowshipId: 'GIDEONITES',
+    title: 'New comment on post',
+    message: 'Amen!',
+    type: 'COMMUNITY_POST',
+    targetRole: 'ALL',
+    readByJson: '[]',
+    createdAt: 1005,
+  };
+  const thirdDuplicateDifferentDedup: FellowshipNotification = {
+    id: 'notif_comment_cmt_1795354221413_adob',
+    dedupKey: 'reply:post_1:1',
+    fellowshipId: 'GIDEONITES',
+    title: 'New comment on post',
+    message: 'Amen!',
+    type: 'COMMUNITY_POST',
+    targetRole: 'ALL',
+    readByJson: '["mem-1"]',
+    createdAt: 1010,
+  };
+
+  const merged = mergeAndFilterNotifications(
+    [[firestoreDocWithoutDedup], [sseWrappedNotif], [thirdDuplicateDifferentDedup]],
+    member,
+    []
+  );
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].id, 'notif_comment_cmt_1795354221413_adob');
+  assert.equal(isNotificationReadByAccount(merged[0], member, []), true);
+});

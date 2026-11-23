@@ -18,6 +18,7 @@ import {
   calculateRegistrationProgress,
   canManageFellowship,
   chunkStringForFirestore,
+  classifyFirestoreConnectionCheckError,
   computeProgrammeEndDateMillis,
   endOfDayMillis,
   estimatePayloadBytes,
@@ -39,11 +40,13 @@ import {
   getDepartmentDisplayName,
   getDisplayNameForAccount,
   getRoleLabel,
+  isClientOfflineFirestoreError,
   isEventDatePassed,
   isForumPostExpired,
   isPendingApprovalStatus,
   isTuesdayDate,
   isUserRegisteredForProgramme,
+  isValidFirebaseClientConfig,
   isWithinFirestoreDocLimit,
   normalizeAccountRoleForFirestore,
   normalizeDepartmentType,
@@ -776,6 +779,85 @@ test('Church brand migration updates ECWA strings, Admin secretariat address, an
     address: '14 Canaanland Way',
   });
   assert.equal(memberClean.changed, false);
+});
+
+test('Firebase config validation and client-offline connection classification behave cleanly', () => {
+  assert.equal(
+    isValidFirebaseClientConfig({
+      projectId: 'gen-lang-client-0477394918',
+      apiKey: 'AIzaSyTest',
+      appId: '1:742042240421:web:487e',
+    }),
+    true
+  );
+  assert.equal(
+    isValidFirebaseClientConfig({
+      projectId: 'remixed-project-id',
+      apiKey: 'AIzaSyTest',
+      appId: '1:123',
+    }),
+    false
+  );
+  assert.equal(
+    isValidFirebaseClientConfig({ projectId: '', apiKey: 'k', appId: 'a' }),
+    false
+  );
+
+  const offlineErr = new Error('Failed to get document because the client is offline.');
+  const permissionErr = Object.assign(new Error('Missing or insufficient permissions.'), {
+    code: 'permission-denied',
+  });
+
+  assert.equal(isClientOfflineFirestoreError(offlineErr), true);
+  assert.equal(isClientOfflineFirestoreError(permissionErr), false);
+
+  assert.equal(
+    classifyFirestoreConnectionCheckError({
+      error: permissionErr,
+      isNavigatorOnline: true,
+      isConfigValid: true,
+    }),
+    'reachable'
+  );
+  assert.equal(
+    classifyFirestoreConnectionCheckError({
+      error: offlineErr,
+      isNavigatorOnline: false,
+      isConfigValid: true,
+    }),
+    'offline_expected'
+  );
+  assert.equal(
+    classifyFirestoreConnectionCheckError({
+      error: offlineErr,
+      isNavigatorOnline: true,
+      isConfigValid: true,
+      isRetryAttempt: false,
+    }),
+    'retry_network'
+  );
+  assert.equal(
+    classifyFirestoreConnectionCheckError({
+      error: offlineErr,
+      isNavigatorOnline: true,
+      isConfigValid: true,
+      isRetryAttempt: true,
+    }),
+    'offline_expected'
+  );
+  assert.equal(
+    classifyFirestoreConnectionCheckError({
+      error: offlineErr,
+      isNavigatorOnline: true,
+      isConfigValid: false,
+    }),
+    'invalid_config'
+  );
+
+  assert.match(
+    formatActionErrorMessage(offlineErr),
+    /offline or on an unstable network/i
+  );
 });
 
 

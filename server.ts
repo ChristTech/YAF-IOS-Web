@@ -382,7 +382,10 @@ function startFirestoreNotificationWatcher(): void {
             if (colName === 'fellowship_notifications' && change.type === 'added') {
               void dispatchNotification({
                 id: docId,
-                dedupKey: `notif:${docId}`,
+                dedupKey:
+                  typeof data.dedupKey === 'string' && data.dedupKey.trim()
+                    ? data.dedupKey.trim()
+                    : `notif:${docId}`,
                 title: String(data.title || 'The Gideonites Alert'),
                 message: String(data.message || ''),
                 type: String(data.type || 'ANNOUNCEMENT'),

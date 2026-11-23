@@ -1261,6 +1261,68 @@ export function formatActionErrorMessage(
   if (raw.toLowerCase().includes('exceeds the maximum allowed size')) {
     return 'This item is too large for database storage (1 MB limit). Please use a smaller attachment.';
   }
+  if (raw.toLowerCase().includes('the client is offline')) {
+    return 'You appear to be offline or on an unstable network. Cached fellowship data remains available and will sync when back online.';
+  }
   return raw;
+}
+
+export function isValidFirebaseClientConfig(config: {
+  projectId?: string | null;
+  apiKey?: string | null;
+  appId?: string | null;
+}): boolean {
+  const projectId = (config.projectId || '').trim();
+  const apiKey = (config.apiKey || '').trim();
+  const appId = (config.appId || '').trim();
+  if (!projectId || !apiKey || !appId) return false;
+  if (projectId === 'remixed-project-id' || projectId.includes('YOUR_')) return false;
+  return true;
+}
+
+export function isClientOfflineFirestoreError(error: unknown): boolean {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code || '').toLowerCase()
+      : '';
+  const msg = (
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' && error !== null && 'message' in error
+      ? String((error as { message?: unknown }).message || '')
+      : String(error || '')
+  ).toLowerCase();
+
+  return (
+    code === 'unavailable' ||
+    msg.includes('the client is offline') ||
+    msg.includes('client is offline') ||
+    msg.includes('could not reach cloud firestore backend')
+  );
+}
+
+export type ConnectionCheckDisposition =
+  | 'reachable'
+  | 'offline_expected'
+  | 'retry_network'
+  | 'invalid_config';
+
+export function classifyFirestoreConnectionCheckError(params: {
+  error: unknown;
+  isNavigatorOnline: boolean;
+  isConfigValid: boolean;
+  isRetryAttempt?: boolean;
+}): ConnectionCheckDisposition {
+  if (!params.isConfigValid) {
+    return 'invalid_config';
+  }
+  if (!params.isNavigatorOnline) {
+    return 'offline_expected';
+  }
+  if (isClientOfflineFirestoreError(params.error)) {
+    return params.isRetryAttempt ? 'offline_expected' : 'retry_network';
+  }
+  // Errors such as permission-denied confirm live server round-trip succeeded.
+  return 'reachable';
 }
 

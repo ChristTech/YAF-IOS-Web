@@ -108,17 +108,39 @@ export function mergeAndFilterNotifications(
   localReadIds: string[] = []
 ): FellowshipNotification[] {
   if (!account) return [];
-  const byKey = new Map<string, FellowshipNotification>();
+  const byBucket = new Map<string, FellowshipNotification>();
+  const idToBucket = new Map<string, string>();
+  const dedupToBucket = new Map<string, string>();
 
   for (const list of sources) {
     for (const item of list) {
-      if (!item || !item.id) continue;
+      if (!item || typeof item.id !== 'string') continue;
+      const cleanId = item.id.trim();
+      if (!cleanId) continue;
       if (!isNotificationForAccount(item, account)) continue;
-      const mergeKey = (item.dedupKey && item.dedupKey.trim()) || item.id;
-      const existing = byKey.get(mergeKey);
-      if (!existing) {
-        byKey.set(mergeKey, item);
+
+      const cleanDedup = typeof item.dedupKey === 'string' ? item.dedupKey.trim() : '';
+      const bucketKey =
+        (cleanDedup && dedupToBucket.get(cleanDedup)) ||
+        idToBucket.get(cleanId) ||
+        (cleanDedup && cleanDedup.startsWith('notif:')
+          ? idToBucket.get(cleanDedup.slice('notif:'.length))
+          : undefined);
+
+      if (!bucketKey) {
+        const newKey = cleanDedup || cleanId;
+        const normalized: FellowshipNotification = {
+          ...item,
+          id: cleanId,
+          ...(cleanDedup ? { dedupKey: cleanDedup } : {}),
+        };
+        byBucket.set(newKey, normalized);
+        idToBucket.set(cleanId, newKey);
+        if (cleanDedup) {
+          dedupToBucket.set(cleanDedup, newKey);
+        }
       } else {
+        const existing = byBucket.get(bucketKey)!;
         const mergedReadBy = Array.from(
           new Set([
             ...parseJsonArray<string>(existing.readByJson, []),
@@ -127,21 +149,41 @@ export function mergeAndFilterNotifications(
         );
         const preferredId = existing.id.startsWith('notif-')
           ? existing.id
-          : item.id.startsWith('notif-')
-          ? item.id
+          : cleanId.startsWith('notif-')
+          ? cleanId
           : existing.id;
-        byKey.set(mergeKey, {
+        const resolvedDedup = cleanDedup || (existing.dedupKey ? existing.dedupKey.trim() : '');
+        const mergedItem: FellowshipNotification = {
           ...existing,
           ...item,
           id: preferredId,
+          ...(resolvedDedup ? { dedupKey: resolvedDedup } : {}),
           readByJson: JSON.stringify(mergedReadBy),
           createdAt: Math.max(existing.createdAt || 0, item.createdAt || 0),
-        });
+        };
+        byBucket.set(bucketKey, mergedItem);
+        idToBucket.set(existing.id, bucketKey);
+        idToBucket.set(cleanId, bucketKey);
+        idToBucket.set(preferredId, bucketKey);
+        if (existing.dedupKey?.trim()) {
+          dedupToBucket.set(existing.dedupKey.trim(), bucketKey);
+        }
+        if (cleanDedup) {
+          dedupToBucket.set(cleanDedup, bucketKey);
+        }
       }
     }
   }
 
-  return Array.from(byKey.values())
+  const seenIds = new Set<string>();
+  const uniqueItems: FellowshipNotification[] = [];
+  for (const item of byBucket.values()) {
+    if (seenIds.has(item.id)) continue;
+    seenIds.add(item.id);
+    uniqueItems.push(item);
+  }
+
+  return uniqueItems
     .map((item) => {
       if (
         localReadIds.includes(item.id) ||

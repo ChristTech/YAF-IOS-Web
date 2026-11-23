@@ -175,8 +175,15 @@ export default function App() {
   }, [isDark]);
 
   useEffect(() => {
-    testConnection();
+    void testConnection();
     void ensureAdminAccountExists();
+
+    const handleOnlineReconnect = () => {
+      void testConnection({ forceEnableNetwork: true });
+      void ensureAdminAccountExists();
+    };
+    window.addEventListener('online', handleOnlineReconnect);
+    return () => window.removeEventListener('online', handleOnlineReconnect);
   }, []);
 
   // Subscribe to fellowship_accounts & restore session if saved
