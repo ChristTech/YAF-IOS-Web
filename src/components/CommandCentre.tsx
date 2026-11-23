@@ -7,6 +7,7 @@ import {
   Database,
   Download,
   FileText,
+  Pencil,
   Radio,
   Search,
   ShieldAlert,
@@ -16,13 +17,15 @@ import {
 } from 'lucide-react';
 import { ChurchLogoBadge, UserAvatar } from './ChurchLogoBadge';
 import { BiblePickerModal } from './BiblePickerModal';
+import { SpiritualPublishDialog } from './spiritual/SpiritualPublishDialog';
 import {
   DataExportPreviewDialog,
-  PublishResourceDialog,
   SmsBroadcastDialog,
   UploadBibleDatabaseDialog,
   type PublishCategory,
 } from './profile/CommandCentreDialogs';
+import { audioSermonPlayer } from '../utils/audioSermonPlayer';
+import { hasPlayableAudioSermon } from '../utils/spiritualLogic';
 import {
   clearDatabasePreserveAdminOnly,
   deleteSpiritualResource,
@@ -98,6 +101,7 @@ export const CommandCentre: React.FC<CommandCentreProps> = ({
 
   // Modals
   const [publishDialogCategory, setPublishDialogCategory] = useState<PublishCategory | null>(null);
+  const [editingSpiritual, setEditingSpiritual] = useState<SpiritualResource | null>(null);
   const [showBibleUpload, setShowBibleUpload] = useState(false);
   const [biblePickerState, setBiblePickerState] = useState<{
     open: boolean;
@@ -238,8 +242,11 @@ export const CommandCentre: React.FC<CommandCentreProps> = ({
   const handleDeleteSpiritual = async (res: SpiritualResource) => {
     setErrorFeedback(null);
     try {
+      if (audioSermonPlayer.getState().activeResourceId === res.id) {
+        audioSermonPlayer.stop();
+      }
       if (!res.id.startsWith('seed-')) {
-        await deleteSpiritualResource(res.id);
+        await deleteSpiritualResource(res.id, res.audioCloudId);
       }
       setDismissedIds((prev) => new Set(prev).add(res.id));
       await logAuditTrail({
@@ -604,24 +611,44 @@ export const CommandCentre: React.FC<CommandCentreProps> = ({
                       className="rounded-xl bg-[#F8FAFC] dark:bg-[#1F2937] border border-[#E2E8F0] dark:border-[#374151] px-3.5 py-2.5 flex items-center justify-between gap-3"
                     >
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <span className="px-2 py-0.5 rounded bg-[#FFF1F2] dark:bg-[#9F1239]/30 text-[#E11D48] dark:text-[#FB7185] text-[10px] font-extrabold">
                             {res.kind.replace('_', ' ')}
                           </span>
+                          {hasPlayableAudioSermon(res) && (
+                            <span className="px-2 py-0.5 rounded bg-[#FEF3C7] dark:bg-[#F59E0B]/20 text-[#92400E] dark:text-[#FCD34D] text-[10px] font-extrabold">
+                              🎧 Audio
+                            </span>
+                          )}
                           <p className="text-xs font-bold truncate">{res.title}</p>
                         </div>
                         <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] mt-0.5">
                           {res.scriptureRef} &bull; {res.speaker}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        aria-label={`Delete ${res.title}`}
-                        onClick={() => handleDeleteSpiritual(res)}
-                        className="min-h-[36px] min-w-[36px] rounded-lg text-[#E11D48] hover:bg-[#FFF1F2] dark:hover:bg-[#9F1239]/25 flex items-center justify-center shrink-0"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {!res.id.startsWith('seed-') && (
+                          <button
+                            type="button"
+                            aria-label={`Edit ${res.title}`}
+                            onClick={() => {
+                              setEditingSpiritual(res);
+                              setPublishDialogCategory(res.kind);
+                            }}
+                            className="min-h-[36px] min-w-[36px] rounded-lg text-[#64748B] hover:text-[#0F172A] dark:hover:text-white hover:bg-[#E2E8F0]/60 dark:hover:bg-[#374151] flex items-center justify-center shrink-0"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          aria-label={`Delete ${res.title}`}
+                          onClick={() => handleDeleteSpiritual(res)}
+                          className="min-h-[36px] min-w-[36px] rounded-lg text-[#E11D48] hover:bg-[#FFF1F2] dark:hover:bg-[#9F1239]/25 flex items-center justify-center shrink-0"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1022,11 +1049,15 @@ export const CommandCentre: React.FC<CommandCentreProps> = ({
       )}
 
       {/* Publishing, Bible Upload, Export Preview & SMS Modals */}
-      <PublishResourceDialog
+      <SpiritualPublishDialog
         isOpen={publishDialogCategory !== null}
         initialCategory={publishDialogCategory || 'SERMON'}
+        editingResource={editingSpiritual}
         account={account}
-        onClose={() => setPublishDialogCategory(null)}
+        onClose={() => {
+          setPublishDialogCategory(null);
+          setEditingSpiritual(null);
+        }}
         onSuccess={(msg) => setStatusMessage(msg)}
       />
 

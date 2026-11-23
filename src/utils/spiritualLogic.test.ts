@@ -5,6 +5,7 @@ import {
   MAX_AUDIO_FILE_BYTES,
   buildAllExplorerVerses,
   buildCappedPrayerPromptJson,
+  buildSermonAudioChunkFirestorePayload,
   buildSpiritualResourceFirestorePayload,
   chunkSpeechText,
   combineDecodedChunksToBlob,
@@ -23,6 +24,9 @@ import {
   getMemoryVerse,
   getSpeechLangTag,
   hasPlayableAudioSermon,
+  inferAudioMimeType,
+  isAmbiguousAudioFile,
+  isAudioFileCandidate,
   maskMemoryVerseText,
   mergeBibleEditionsWithDefault,
   sanitizeSpiritualDisplayText,
@@ -192,9 +196,71 @@ test('Audio sermon validation, chunk base64 round-trip, duration/size formatting
     validateAudioSermonFile({ name: 'huge.mp3', size: MAX_AUDIO_FILE_BYTES + 1, type: 'audio/mpeg' }).ok,
     false
   );
-  assert.equal(validateAudioSermonFile({ name: 'notes.pdf', size: 1024, type: 'application/pdf' }).ok, false);
-  assert.equal(validateAudioSermonFile({ name: 'sermon.mp3', size: 1024 * 1024, type: 'audio/mpeg' }).ok, true);
-  assert.equal(validateAudioSermonFile({ name: 'sermon.m4a', size: 2048, type: '' }).ok, true);
+
+  // Non-audio rejection exact inline message
+  for (const nonAudio of [
+    { name: 'notes.pdf', size: 1024, type: 'application/pdf' },
+    { name: 'bible.epub', size: 1024, type: 'application/epub+zip' },
+    { name: 'outline.txt', size: 512, type: 'text/plain' },
+    { name: 'flyer.png', size: 2048, type: 'image/png' },
+    { name: 'app.apk', size: 4096, type: 'application/vnd.android.package-archive' },
+  ]) {
+    const res = validateAudioSermonFile(nonAudio);
+    assert.equal(res.ok, false);
+    if (!res.ok) {
+      assert.equal(
+        res.error,
+        `'${nonAudio.name}' is not an audio file. Please select an MP3, M4A, AAC, WAV, OGG, or Voice Recording.`
+      );
+    }
+    assert.equal(isAudioFileCandidate(nonAudio), false);
+  }
+
+  // Extended mobile/voice-note audio extensions even with blank, octet-stream, ogg, or video/mp4 MIME
+  for (const audioCase of [
+    { name: 'sermon.mp3', size: 1024 * 1024, type: 'audio/mpeg' },
+    { name: 'sermon.m4a', size: 2048, type: '' },
+    { name: 'voice_note.ogg', size: 2048, type: 'application/ogg' },
+    { name: 'whatsapp_ptt.opus', size: 2048, type: 'application/octet-stream' },
+    { name: 'recording.flac', size: 2048, type: '' },
+    { name: 'memo.3gp', size: 2048, type: '' },
+    { name: 'call.amr', size: 2048, type: '' },
+    { name: 'talk.wma', size: 2048, type: '' },
+    { name: 'chapter.m4b', size: 2048, type: '' },
+    { name: 'audio_track.mp4', size: 4096, type: 'video/mp4' },
+    { name: 'browser_rec.webm', size: 4096, type: 'audio/webm' },
+  ]) {
+    const res = validateAudioSermonFile(audioCase);
+    assert.equal(res.ok, true, `Expected ${audioCase.name} (${audioCase.type}) to validate`);
+    assert.equal(isAudioFileCandidate(audioCase), true);
+  }
+
+  assert.equal(isAmbiguousAudioFile({ name: 'sermon.mp3', type: 'audio/mpeg' }), false);
+  assert.equal(isAmbiguousAudioFile({ name: 'audio_track.mp4', type: 'video/mp4' }), true);
+  assert.equal(isAmbiguousAudioFile({ name: 'unknown_voice_note', type: 'application/octet-stream' }), true);
+
+  assert.equal(inferAudioMimeType('sermon.m4a', 'video/mp4'), 'audio/mp4');
+  assert.equal(inferAudioMimeType('voice.opus', 'application/octet-stream'), 'audio/ogg');
+  assert.equal(inferAudioMimeType('sunday.mp3', ''), 'audio/mpeg');
+  assert.equal(inferAudioMimeType('sunday.wav', ''), 'audio/wav');
+
+  // Blank speaker defaults to Living Faith Church Youth Ministry
+  const defaultSpeakerPayload = buildSpiritualResourceFirestorePayload({
+    authorId: 'user-admin-01',
+    authorName: '',
+    category: 'SERMON',
+    title: 'Faith Message',
+    speaker: '',
+    scriptureRef: 'Romans 10:17',
+    summary: '',
+    body: 'Body text',
+    audioDurationMinutes: 15,
+  });
+  assert.equal(defaultSpeakerPayload.authorName, 'Living Faith Church Youth Ministry');
+  assert.equal(
+    JSON.parse(String(defaultSpeakerPayload.prayerPromptEn)).speaker,
+    'Living Faith Church Youth Ministry'
+  );
 
   const sample = new Uint8Array(AUDIO_SLICE_BYTES + 123);
   for (let i = 0; i < sample.length; i += 1) {
@@ -272,4 +338,32 @@ test('Audio sermon validation, chunk base64 round-trip, duration/size formatting
     ),
     'Audio sermon notes unavailable'
   );
+
+  const stampSentinel = { _type: 'serverTimestamp' };
+  const chunkDoc = buildSermonAudioChunkFirestorePayload({
+    audioCloudId: ' sa_0123456789abcdef ',
+    uploadedById: '',
+    chunkIndex: 0,
+    totalChunks: 3,
+    dataBase64: 'UklGRg==',
+    createdAt: stampSentinel,
+    updatedAt: stampSentinel,
+  });
+  assert.deepEqual(Object.keys(chunkDoc).sort(), [
+    'audioCloudId',
+    'chunkIndex',
+    'createdAt',
+    'dataBase64',
+    'fellowshipId',
+    'totalChunks',
+    'updatedAt',
+    'uploadedById',
+  ]);
+  assert.equal(chunkDoc.audioCloudId, 'sa_0123456789abcdef');
+  assert.equal(chunkDoc.fellowshipId, 'GIDEONITES');
+  assert.equal(chunkDoc.uploadedById, 'user-admin-01');
+  assert.equal(chunkDoc.chunkIndex, 0);
+  assert.equal(chunkDoc.totalChunks, 3);
+  assert.equal(chunkDoc.createdAt, stampSentinel);
+  assert.equal(chunkDoc.updatedAt, stampSentinel);
 });

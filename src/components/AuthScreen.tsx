@@ -111,7 +111,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </h1>
             <p className="text-sm font-semibold text-[#E11D48]">The Youth Alive Fellowship</p>
             <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">
-              ECWA • Standing in the Gap • Raising Kingdom Giants
+              Living Faith Church • Standing in the Gap • Raising Kingdom Giants
             </p>
           </div>
         </header>

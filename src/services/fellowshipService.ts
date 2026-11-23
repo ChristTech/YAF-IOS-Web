@@ -27,6 +27,9 @@ import {
 import { hashPassword, verifyPassword } from '../utils/crypto';
 import { normalizeLanguageCode } from '../data/translations';
 import {
+  ADMIN_SECRETARIAT_ADDRESS,
+  DEFAULT_MINISTRY_AUTHOR,
+  applyAccountBrandMigration,
   buildNewAccountFirestoreDoc,
   buildReminderSchedule,
   chunkStringForFirestore,
@@ -44,15 +47,18 @@ import {
   normalizeDepartmentType,
   normalizeLanguageForFirestore,
   parseJsonArray,
+  resolveMigratedAccountAddress,
   serializeCommentsWithinLimit,
   type ParsedBibleVerse,
 } from '../utils/fellowshipLogic';
 import {
   AUDIO_SLICE_BYTES,
   buildCappedPrayerPromptJson,
+  buildSermonAudioChunkFirestorePayload,
   buildSpiritualResourceFirestorePayload,
   combineDecodedChunksToBlob,
   generateAudioCloudId,
+  inferAudioMimeType,
   sliceAudioBytesToChunkBase64,
   type ExtendedSpiritualKind,
 } from '../utils/spiritualLogic';
@@ -353,19 +359,55 @@ export async function writeHybridRecord<T extends { id: string; fellowshipId: st
   }
 }
 
+const attemptedAddressMigrations = new Map<string, string>();
+
+export async function migrateAccountAddressesInFirestore(
+  accounts: FellowshipAccount[]
+): Promise<void> {
+  for (const acc of accounts) {
+    if (!acc?.id) continue;
+    const { address, changed } = resolveMigratedAccountAddress(acc);
+    if (!changed || !address) continue;
+    if (attemptedAddressMigrations.get(acc.id) === address) continue;
+    attemptedAddressMigrations.set(acc.id, address);
+
+    try {
+      await updateDoc(doc(db, COLLECTIONS.ACCOUNTS, acc.id), {
+        address,
+        updatedAt: serverTimestamp(),
+      });
+      const uid = acc.userId || acc.id;
+      if (auth.currentUser && auth.currentUser.uid === uid) {
+        await setDoc(
+          doc(db, 'users', auth.currentUser.uid),
+          { address, updatedAt: Date.now() },
+          { merge: true }
+        ).catch(() => {});
+      }
+    } catch {
+      // Non-fatal: e.g. read-only session or offline; cached value already sanitized in memory
+    }
+  }
+}
+
 export async function ensureAdminAccountExists(): Promise<FellowshipAccount> {
   const ref = doc(db, COLLECTIONS.ACCOUNTS, ADMIN_DOC_ID);
   try {
     const snap = await getDoc(ref);
     if (snap.exists()) {
       const data = snap.data() as Record<string, unknown>;
-      return {
+      const baseAdmin: FellowshipAccount = {
         ...(data as unknown as FellowshipAccount),
         id: snap.id,
         fullName: 'Admin',
         role: 'ADMINISTRATOR',
         status: 'APPROVED',
       };
+      const migrated = applyAccountBrandMigration(baseAdmin);
+      if (migrated.changed) {
+        void migrateAccountAddressesInFirestore([baseAdmin]);
+      }
+      return migrated.account;
     }
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, `${COLLECTIONS.ACCOUNTS}/${ADMIN_DOC_ID}`, true);
@@ -379,6 +421,7 @@ export async function ensureAdminAccountExists(): Promise<FellowshipAccount> {
     fullName: 'Admin',
     email: 'admin@youthalive.org',
     phone: '08000000001',
+    address: ADMIN_SECRETARIAT_ADDRESS,
     salt: hashed.saltBase64,
     passwordHash: hashed.hashBase64,
     role: 'ADMINISTRATOR' as const,
@@ -404,6 +447,7 @@ export async function ensureAdminAccountExists(): Promise<FellowshipAccount> {
     email: 'admin@youthalive.org',
     phone: '08000000001',
     phoneNumber: '08000000001',
+    address: ADMIN_SECRETARIAT_ADDRESS,
     salt: hashed.saltBase64,
     passwordHash: hashed.hashBase64,
     role: 'ADMINISTRATOR',
@@ -470,19 +514,27 @@ export async function signInWithCredentials(
   if (!valid) {
     // Allow official AdminPass#2026 fallback only for user-admin-01 if Android stored plain or alternate key
     if (match.id === ADMIN_DOC_ID && password === 'AdminPass#2026') {
+      const migrated = applyAccountBrandMigration({ ...match, fullName: 'Admin' });
+      if (migrated.changed) {
+        void migrateAccountAddressesInFirestore([match]);
+      }
       saveAccountId(match.id);
-      return { ...match, fullName: 'Admin' };
+      return migrated.account;
     }
     throw new Error('Incorrect password. Please try again.');
   }
 
-  const normalized: FellowshipAccount =
+  const baseNormalized: FellowshipAccount =
     match.id === ADMIN_DOC_ID || match.role === 'ADMINISTRATOR'
       ? { ...match, fullName: 'Admin' }
       : match;
+  const migrated = applyAccountBrandMigration(baseNormalized);
+  if (migrated.changed) {
+    void migrateAccountAddressesInFirestore([baseNormalized]);
+  }
 
-  saveAccountId(normalized.id);
-  return normalized;
+  saveAccountId(migrated.account.id);
+  return migrated.account;
 }
 
 export async function registerFellowshipAccount(params: {
@@ -590,12 +642,16 @@ export async function signInWithGoogleAccount(): Promise<FellowshipAccount> {
 
   const match = existing.find((a) => a.email?.trim().toLowerCase() === email);
   if (match) {
-    const normalized =
+    const baseNormalized =
       match.id === ADMIN_DOC_ID || match.role === 'ADMINISTRATOR'
         ? { ...match, fullName: 'Admin' }
         : match;
-    saveAccountId(normalized.id);
-    return normalized;
+    const migrated = applyAccountBrandMigration(baseNormalized);
+    if (migrated.changed) {
+      void migrateAccountAddressesInFirestore([baseNormalized]);
+    }
+    saveAccountId(migrated.account.id);
+    return migrated.account;
   }
 
   const newId = `user-g-${gUser.uid.slice(0, 12)}`;
@@ -1342,31 +1398,33 @@ export async function uploadSermonAudioChunks(params: {
   const audioCloudId = params.audioCloudId?.trim() || generateAudioCloudId();
   const uploadedById = auth.currentUser?.uid || params.uploadedById || ADMIN_DOC_ID;
   const totalChunks = base64Chunks.length;
-  const mimeType =
-    ('type' in params.file && params.file.type ? params.file.type : '') || 'audio/mpeg';
+  const rawType = 'type' in params.file && params.file.type ? params.file.type : '';
+  const mimeType = inferAudioMimeType(params.fileName, rawType);
+
+  let lastChunkPath: string = COLLECTIONS.SERMON_AUDIO_CHUNKS;
 
   try {
     for (let i = 0; i < base64Chunks.length; i += 1) {
-      const nowMs = Date.now();
       const chunkDocId = `${audioCloudId}_c${i}`;
-      await setDoc(doc(db, COLLECTIONS.SERMON_AUDIO_CHUNKS, chunkDocId), {
+      lastChunkPath = `${COLLECTIONS.SERMON_AUDIO_CHUNKS}/${chunkDocId}`;
+      const chunkPayload = buildSermonAudioChunkFirestorePayload({
         audioCloudId,
-        fellowshipId: FELLOWSHIP_ID,
         uploadedById,
         chunkIndex: i,
         totalChunks,
         dataBase64: base64Chunks[i],
-        createdAt: nowMs,
-        updatedAt: nowMs,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
+      await setDoc(doc(db, COLLECTIONS.SERMON_AUDIO_CHUNKS, chunkDocId), chunkPayload);
       params.onProgress?.(i + 1, totalChunks);
     }
   } catch (err) {
     await deleteAudioChunksForCloudId(audioCloudId);
-    handleFirestoreError(err, OperationType.CREATE, COLLECTIONS.SERMON_AUDIO_CHUNKS);
+    handleFirestoreError(err, OperationType.CREATE, lastChunkPath);
   }
 
-  await saveAudioSermonBlob(audioCloudId, params.file, params.fileName);
+  await saveAudioSermonBlob(audioCloudId, params.file, params.fileName).catch(() => {});
 
   return {
     audioCloudId,
@@ -1452,7 +1510,7 @@ export async function publishDailyScripture(params: {
 
   const docData: Record<string, unknown> = {
     authorId: params.authorId,
-    authorName: params.authorName,
+    authorName: params.authorName.trim() || DEFAULT_MINISTRY_AUTHOR,
     fellowshipId: FELLOWSHIP_ID,
     dateKey,
     referenceEn: refClean,
@@ -1534,10 +1592,10 @@ export async function publishSpiritualResource(
   const docData: Record<string, unknown> = {
     ...buildSpiritualResourceFirestorePayload({
       authorId,
-      authorName: resource.speaker.trim() || 'Youth Leadership',
+      authorName: resource.speaker.trim() || DEFAULT_MINISTRY_AUTHOR,
       category: resource.kind,
       title: titleClean,
-      speaker: resource.speaker.trim() || 'Youth Leadership',
+      speaker: resource.speaker.trim() || DEFAULT_MINISTRY_AUTHOR,
       scriptureRef: refClean,
       summary: summaryClean,
       body: bodyClean,
@@ -1565,7 +1623,7 @@ export async function publishSpiritualResource(
       title: audioMeta
         ? `🎧 New Audio Sermon: ${titleClean}`
         : `New ${resource.kind.replace('_', ' ')}: ${titleClean}`,
-      message: `${resource.speaker || 'Youth Leadership'} · ${refClean}`,
+      message: `${resource.speaker.trim() || DEFAULT_MINISTRY_AUTHOR} · ${refClean}`,
       type: 'ANNOUNCEMENT',
       targetRole: 'ALL',
       targetTab: 'spiritual',
@@ -1990,7 +2048,7 @@ export function extractDailyResources(docs: DailyScriptureDoc[]): {
         id: d.id,
         kind,
         title: String(meta?.title || verseVal || refVal || 'Fellowship Teaching'),
-        speaker: String(meta?.speaker || d.authorName || d.chargeEn || 'Youth Leadership'),
+        speaker: String(meta?.speaker || d.authorName || d.chargeEn || DEFAULT_MINISTRY_AUTHOR),
         scriptureRef: String(meta?.scriptureRef || refVal || 'Psalm 119:105'),
         duration: String(
           meta?.duration || (kind === 'SERMON' && audioMins > 0 ? `${audioMins} min audio` : '5 min read')
@@ -3231,6 +3289,7 @@ export async function clearDatabasePreserveAdminOnly(): Promise<number> {
         fullName: 'Admin',
         email: 'admin@youthalive.org',
         phone: '+2348011223344',
+        address: ADMIN_SECRETARIAT_ADDRESS,
         salt: hashed.saltBase64,
         passwordHash: hashed.hashBase64,
         role: 'ADMINISTRATOR',

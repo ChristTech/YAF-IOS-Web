@@ -411,7 +411,7 @@ function startFirestoreNotificationWatcher(): void {
                 continue;
               }
               const titleEn = String(data.titleEn || 'Youth Programme').trim();
-              const venue = String(data.venue || 'ECWA Youth Hall').trim();
+              const venue = String(data.venue || 'Living Faith Church Youth Hall').trim();
               void dispatchNotification({
                 id: `syn-prog-${docId}`,
                 dedupKey: `prog:${docId}`,

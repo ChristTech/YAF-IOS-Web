@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ADMIN_SECRETARIAT_ADDRESS,
   DAY_MS,
+  DEFAULT_MINISTRY_AUTHOR,
   SAFE_FIRESTORE_DOC_BYTES,
+  applyAccountBrandMigration,
   buildAttendanceCsv,
   buildCsvContent,
   buildFinancesCsv,
@@ -49,6 +52,8 @@ import {
   normalizeLanguageForFirestore,
   parseJsonArray,
   parseLineOrJsonBibleVerses,
+  resolveMigratedAccountAddress,
+  sanitizeChurchBrandText,
   scrambleWord,
   serializeCommentsWithinLimit,
   sortProgrammesAscending,
@@ -425,7 +430,7 @@ test('extractScriptureOfTheDay filters Bible packs/sermons, picks newest publish
 
   const fallback = extractScriptureOfTheDay([], 'EN');
   assert.equal(fallback.reference, 'Judges 6:12');
-  assert.equal(fallback.authorName, 'Youth Pastor / Admin');
+  assert.equal(fallback.authorName, 'Living Faith Church Youth Ministry');
 });
 
 test('programmes sort ascending by startDateMillis, filter by EventCategory, and generate reminder ICS/mailto', () => {
@@ -710,4 +715,67 @@ test('buildNewAccountFirestoreDoc enforces Android fellowship_accounts schema pa
   assert.equal('passwordSalt' in doc, false);
   assert.equal('avatarUrl' in doc, false);
 });
+
+test('Church brand migration updates ECWA strings, Admin secretariat address, and guards write loops', () => {
+  assert.equal(DEFAULT_MINISTRY_AUTHOR, 'Living Faith Church Youth Ministry');
+  assert.equal(
+    ADMIN_SECRETARIAT_ADDRESS,
+    'Living Faith Church Youth Alive Fellowship Secretariat'
+  );
+  assert.equal(
+    sanitizeChurchBrandText('ECWA Youth Hall, ecwa District'),
+    'Living Faith Church Youth Hall, Living Faith Church District'
+  );
+
+  // Admin with blank address migrates to Living Faith Church Secretariat
+  const adminBlank: FellowshipAccount = {
+    id: 'user-admin-01',
+    userId: 'user-admin-01',
+    fellowshipId: 'GIDEONITES',
+    fullName: 'Admin',
+    email: 'admin@youthalive.org',
+    role: 'ADMINISTRATOR',
+    status: 'APPROVED',
+    department: 'GENERAL',
+    preferredLanguage: 'EN',
+    createdAt: 1000,
+  };
+  const adminBlankMig = applyAccountBrandMigration(adminBlank);
+  assert.equal(adminBlankMig.changed, true);
+  assert.equal(adminBlankMig.account.address, ADMIN_SECRETARIAT_ADDRESS);
+
+  // Admin already migrated -> changed: false (loop guard)
+  const adminSecondPass = applyAccountBrandMigration(adminBlankMig.account);
+  assert.equal(adminSecondPass.changed, false);
+
+  // Admin with legacy ECWA address -> migrates cleanly
+  const adminEcwa = resolveMigratedAccountAddress({
+    id: 'other-id',
+    email: 'admin@youthalive.org',
+    role: 'ADMINISTRATOR',
+    address: 'ECWA Youth Alive Fellowship Secretariat',
+  });
+  assert.equal(adminEcwa.changed, true);
+  assert.equal(adminEcwa.address, ADMIN_SECRETARIAT_ADDRESS);
+
+  // Member with ECWA in residential address -> sanitized cleanly
+  const memberEcwa = resolveMigratedAccountAddress({
+    id: 'user-member-1',
+    email: 'member@youthalive.org',
+    role: 'YOUTH_MEMBER',
+    address: 'Behind ECWA Goodnews Church, Jos',
+  });
+  assert.equal(memberEcwa.changed, true);
+  assert.equal(memberEcwa.address, 'Behind Living Faith Church Goodnews Church, Jos');
+
+  // Member without ECWA -> untouched
+  const memberClean = resolveMigratedAccountAddress({
+    id: 'user-member-2',
+    email: 'clean@youthalive.org',
+    role: 'YOUTH_MEMBER',
+    address: '14 Canaanland Way',
+  });
+  assert.equal(memberClean.changed, false);
+});
+
 

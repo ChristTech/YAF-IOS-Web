@@ -9,6 +9,7 @@ import {
 } from '../../services/fellowshipService';
 import { build66BookReferenceVerses, parseDocumentFile } from '../../utils/documentParser';
 import {
+  DEFAULT_MINISTRY_AUTHOR,
   formatActionErrorMessage,
   getDisplayNameForAccount,
   parseLineOrJsonBibleVerses,
@@ -113,7 +114,7 @@ export const PublishResourceDialog: React.FC<PublishResourceDialogProps> = ({
       if (category === 'SCRIPTURE_OF_THE_DAY') {
         await publishDailyScripture({
           authorId: account.userId || account.id,
-          authorName: displayName,
+          authorName: speaker.trim() || DEFAULT_MINISTRY_AUTHOR,
           referenceEn: scriptureRef.trim(),
           verseTextEn: body.trim(),
           chargeText: summary.trim() || 'Rise as mighty Gideonites today and do Kingdom exploits!',
@@ -134,7 +135,7 @@ export const PublishResourceDialog: React.FC<PublishResourceDialogProps> = ({
           authorId: account.userId || account.id,
           kind: category,
           title: title.trim(),
-          speaker: speaker.trim() || displayName,
+          speaker: speaker.trim() || DEFAULT_MINISTRY_AUTHOR,
           scriptureRef: scriptureRef.trim() || 'Judges 6:12',
           duration: category === 'SERMON' && mins > 0 ? `${mins} min audio` : '5 min read',
           audioDurationMinutes: mins || undefined,

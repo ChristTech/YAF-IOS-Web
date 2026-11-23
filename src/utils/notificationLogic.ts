@@ -412,7 +412,7 @@ export function synthesizeNotificationFromFirestoreChange(params: {
       return null;
     }
     const titleEn = String(data.titleEn || 'Youth Programme').trim();
-    const venue = String(data.venue || 'ECWA Youth Hall').trim();
+    const venue = String(data.venue || 'Living Faith Church Youth Hall').trim();
     return {
       id: `syn-prog-${docId}`,
       dedupKey: `prog:${docId}`,

@@ -22,9 +22,11 @@ import { testConnection } from './services/firebase';
 import {
   COLLECTIONS,
   cleanupExpiredForumPosts,
+  ensureAdminAccountExists,
   extractDailyResources,
   fetchDocsServerFirst,
   getSavedAccountId,
+  migrateAccountAddressesInFirestore,
   normalizeDocTimestamp,
   purgeExpiredEvents,
   saveAccountId,
@@ -33,6 +35,7 @@ import {
   updateAccountProfile,
 } from './services/fellowshipService';
 import {
+  applyAccountBrandMigration,
   extractScriptureOfTheDay,
   filterActiveAccounts,
   filterActiveProgrammes,
@@ -173,6 +176,7 @@ export default function App() {
 
   useEffect(() => {
     testConnection();
+    void ensureAdminAccountExists();
   }, []);
 
   // Subscribe to fellowship_accounts & restore session if saved
@@ -188,7 +192,11 @@ export default function App() {
         createdAt: normalizeDocTimestamp(data),
       }),
       (items) => {
-        const active = filterActiveAccounts(items);
+        const rawActive = filterActiveAccounts(items);
+        if (rawActive.some((acc) => applyAccountBrandMigration(acc).changed)) {
+          void migrateAccountAddressesInFirestore(rawActive);
+        }
+        const active = rawActive.map((acc) => applyAccountBrandMigration(acc).account);
         setAccounts(active);
 
         if (savedId && !restored) {

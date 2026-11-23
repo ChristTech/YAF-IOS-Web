@@ -4,7 +4,10 @@ import {
   build66BookReferenceVerses,
   type BibleVerseItem,
 } from '../data/bibleData';
-import { chunkStringForFirestore } from './fellowshipLogic';
+import {
+  DEFAULT_MINISTRY_AUTHOR,
+  chunkStringForFirestore,
+} from './fellowshipLogic';
 import type {
   DailyScriptureDoc,
   LanguageCode,
@@ -262,7 +265,7 @@ export function extractScriptureOfTheDayResources(
     const ref = (d.referenceEn || d.reference || 'Daniel 11:32b').trim();
     const verse = (d.verseTextEn || d.verseText || '').trim();
     const title = String(meta?.title || `Scripture for the Day • ${ref}`);
-    const speaker = String(meta?.speaker || d.authorName || 'Youth Pastor / Admin');
+    const speaker = String(meta?.speaker || d.authorName || DEFAULT_MINISTRY_AUTHOR);
     const body = joinedReflections || verse || String(meta?.summary || '');
 
     result.push({
@@ -635,15 +638,168 @@ export function generateAudioCloudId(): string {
   return `sa_${hex}`;
 }
 
+export const VALID_AUDIO_EXTENSIONS = new Set([
+  'mp3',
+  'm4a',
+  'aac',
+  'wav',
+  'ogg',
+  'oga',
+  'opus',
+  'flac',
+  '3gp',
+  'amr',
+  'wma',
+  'm4b',
+  'mpga',
+  'mpeg',
+  'mp4',
+  'webm',
+]);
+
+export const AMBIGUOUS_AUDIO_EXTENSIONS = new Set(['mp4', 'webm']);
+
+export const NON_AUDIO_FILE_EXTENSIONS = new Set([
+  'pdf',
+  'epub',
+  'txt',
+  'doc',
+  'docx',
+  'rtf',
+  'odt',
+  'csv',
+  'json',
+  'xml',
+  'html',
+  'htm',
+  'md',
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp',
+  'svg',
+  'bmp',
+  'heic',
+  'zip',
+  'rar',
+  '7z',
+  'tar',
+  'gz',
+  'apk',
+  'exe',
+  'dmg',
+  'iso',
+]);
+
+export function getFileExtensionLower(fileName: string): string {
+  const clean = (fileName || '').trim().toLowerCase();
+  const lastDot = clean.lastIndexOf('.');
+  if (lastDot < 0 || lastDot === clean.length - 1) return '';
+  return clean.slice(lastDot + 1);
+}
+
+export function formatNonAudioRejectionMessage(fileName: string): string {
+  return `'${fileName || 'Selected file'}' is not an audio file. Please select an MP3, M4A, AAC, WAV, OGG, or Voice Recording.`;
+}
+
+export function isKnownNonAudioFile(fileName: string, mimeType?: string): boolean {
+  const ext = getFileExtensionLower(fileName);
+  if (ext && NON_AUDIO_FILE_EXTENSIONS.has(ext)) return true;
+  const mime = (mimeType || '').trim().toLowerCase();
+  if (!mime) return false;
+  return (
+    mime.startsWith('image/') ||
+    mime.startsWith('text/') ||
+    mime === 'application/pdf' ||
+    mime === 'application/epub+zip' ||
+    mime === 'application/zip' ||
+    mime === 'application/x-zip-compressed' ||
+    mime === 'application/vnd.android.package-archive' ||
+    mime === 'application/msword' ||
+    mime.startsWith('application/vnd.openxmlformats-officedocument')
+  );
+}
+
+export function isAudioFileCandidate(file: { name: string; type?: string }): boolean {
+  if (!file || isKnownNonAudioFile(file.name, file.type)) return false;
+  const ext = getFileExtensionLower(file.name);
+  const mime = (file.type || '').trim().toLowerCase();
+  return (
+    (Boolean(ext) && VALID_AUDIO_EXTENSIONS.has(ext)) ||
+    mime.startsWith('audio/') ||
+    mime === 'application/ogg'
+  );
+}
+
+export function isAmbiguousAudioFile(file: { name: string; type?: string }): boolean {
+  if (!file) return false;
+  const ext = getFileExtensionLower(file.name);
+  const mime = (file.type || '').trim().toLowerCase();
+  if (AMBIGUOUS_AUDIO_EXTENSIONS.has(ext)) return true;
+  if (mime === 'video/mp4' || mime === 'video/webm') return true;
+  if (!ext || !VALID_AUDIO_EXTENSIONS.has(ext)) {
+    return (
+      mime === '' ||
+      mime === 'application/octet-stream' ||
+      mime === 'application/ogg' ||
+      mime.startsWith('audio/')
+    );
+  }
+  return false;
+}
+
+export function inferAudioMimeType(fileName: string, rawType?: string): string {
+  const mime = (rawType || '').trim().toLowerCase();
+  if (mime.startsWith('audio/')) {
+    return mime;
+  }
+  if (mime === 'application/ogg') {
+    return 'audio/ogg';
+  }
+  const ext = getFileExtensionLower(fileName);
+  switch (ext) {
+    case 'mp3':
+    case 'mpga':
+    case 'mpeg':
+      return 'audio/mpeg';
+    case 'm4a':
+    case 'm4b':
+    case 'mp4':
+      return 'audio/mp4';
+    case 'aac':
+      return 'audio/aac';
+    case 'wav':
+      return 'audio/wav';
+    case 'ogg':
+    case 'oga':
+    case 'opus':
+      return 'audio/ogg';
+    case 'flac':
+      return 'audio/flac';
+    case '3gp':
+      return 'audio/3gpp';
+    case 'amr':
+      return 'audio/amr';
+    case 'wma':
+      return 'audio/x-ms-wma';
+    case 'webm':
+      return 'audio/webm';
+    default:
+      return 'audio/mpeg';
+  }
+}
+
 export function validateAudioSermonFile(file: {
   name: string;
   size: number;
   type?: string;
-}): { ok: true } | { ok: false; error: string } {
+}): { ok: true; ambiguous: boolean; inferredMimeType: string } | { ok: false; error: string } {
   if (!file || typeof file.size !== 'number' || file.size <= 0) {
     return {
       ok: false,
-      error: 'The selected audio file is empty (0 bytes). Please choose a valid MP3, M4A, AAC, or WAV recording.',
+      error:
+        'The selected audio file is empty (0 bytes). Please choose a valid MP3, M4A, AAC, WAV, OGG, or Voice Recording.',
     };
   }
   if (file.size > MAX_AUDIO_FILE_BYTES) {
@@ -660,26 +816,36 @@ export function validateAudioSermonFile(file: {
       error: `Audio file requires ${expectedChunks} chunks (max ${MAX_AUDIO_CHUNKS}). Please upload a smaller recording under 24 MB.`,
     };
   }
-  const lowerName = (file.name || '').trim().toLowerCase();
+
+  if (isKnownNonAudioFile(file.name, file.type)) {
+    return {
+      ok: false,
+      error: formatNonAudioRejectionMessage(file.name),
+    };
+  }
+
+  const ext = getFileExtensionLower(file.name);
   const mime = (file.type || '').trim().toLowerCase();
-  const hasAllowedExt = /\.(mp3|m4a|aac|wav)$/i.test(lowerName);
+  const hasAllowedExt = Boolean(ext) && VALID_AUDIO_EXTENSIONS.has(ext);
   const hasAllowedMime =
-    mime === 'audio/mpeg' ||
-    mime === 'audio/mp3' ||
-    mime === 'audio/mp4' ||
-    mime === 'audio/x-m4a' ||
-    mime === 'audio/aac' ||
-    mime === 'audio/wav' ||
-    mime === 'audio/wave' ||
-    mime === 'audio/x-wav' ||
-    mime.startsWith('audio/');
+    mime.startsWith('audio/') ||
+    mime === 'application/ogg' ||
+    mime === 'video/mp4' ||
+    mime === 'video/webm' ||
+    mime === 'application/octet-stream';
+
   if (!hasAllowedExt && !hasAllowedMime) {
     return {
       ok: false,
-      error: 'Unsupported audio format. Please select an MP3, M4A, AAC, or WAV file.',
+      error: formatNonAudioRejectionMessage(file.name),
     };
   }
-  return { ok: true };
+
+  return {
+    ok: true,
+    ambiguous: isAmbiguousAudioFile(file),
+    inferredMimeType: inferAudioMimeType(file.name, file.type),
+  };
 }
 
 export function encodeUint8ArrayToPureBase64(bytes: Uint8Array): string {
@@ -893,7 +1059,7 @@ export function buildSpiritualResourceFirestorePayload(params: {
       ? `Scripture for the Day • ${refClean}`
       : params.title
   ).trim();
-  const speakerClean = (params.speaker || params.authorName || 'Youth Leadership').trim();
+  const speakerClean = (params.speaker || params.authorName || DEFAULT_MINISTRY_AUTHOR).trim();
   const hasAudio = Boolean(
     params.category === 'SERMON' &&
       params.audioCloudId &&
@@ -971,6 +1137,38 @@ export function buildSpiritualResourceFirestorePayload(params: {
     ...(reflectionHa ? { reflectionHa } : {}),
     ...(reflectionIg ? { reflectionIg } : {}),
     prayerPromptEn: promptJson,
+  };
+}
+
+export interface SermonAudioChunkFirestorePayload<TTimestamp = unknown> {
+  audioCloudId: string;
+  fellowshipId: 'GIDEONITES';
+  uploadedById: string;
+  chunkIndex: number;
+  totalChunks: number;
+  dataBase64: string;
+  createdAt: TTimestamp;
+  updatedAt: TTimestamp;
+}
+
+export function buildSermonAudioChunkFirestorePayload<TTimestamp = unknown>(params: {
+  audioCloudId: string;
+  uploadedById?: string | null;
+  chunkIndex: number;
+  totalChunks: number;
+  dataBase64: string;
+  createdAt: TTimestamp;
+  updatedAt: TTimestamp;
+}): SermonAudioChunkFirestorePayload<TTimestamp> {
+  return {
+    audioCloudId: params.audioCloudId.trim(),
+    fellowshipId: 'GIDEONITES',
+    uploadedById: (params.uploadedById || '').trim() || 'user-admin-01',
+    chunkIndex: Math.max(0, Math.floor(params.chunkIndex)),
+    totalChunks: Math.max(1, Math.floor(params.totalChunks)),
+    dataBase64: params.dataBase64,
+    createdAt: params.createdAt,
+    updatedAt: params.updatedAt,
   };
 }
 

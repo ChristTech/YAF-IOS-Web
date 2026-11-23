@@ -237,7 +237,9 @@ export const EditProfileDialog: React.FC<EditProfileDialogProps> = ({
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             placeholder={
-              isAdmin ? 'ECWA Youth Alive Fellowship Secretariat' : 'Enter residential address'
+              isAdmin
+                ? 'Living Faith Church Youth Alive Fellowship Secretariat'
+                : 'Enter residential address'
             }
             className="w-full min-h-[44px] px-3.5 rounded-xl bg-[#F8FAFC] dark:bg-[#1F2937] border border-[#E2E8F0] dark:border-[#374151] text-sm"
           />

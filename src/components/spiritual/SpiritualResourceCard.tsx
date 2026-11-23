@@ -3,7 +3,6 @@ import {
   Bookmark,
   BookOpen,
   Loader2,
-  Music,
   Pause,
   Pencil,
   Play,
@@ -93,8 +92,7 @@ export const SpiritualResourceCard: React.FC<SpiritualResourceCardProps> = ({
             </span>
             {isPlayableRecording && (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#FEF3C7] dark:bg-[#F59E0B]/20 text-[#92400E] dark:text-[#FCD34D] text-[11px] font-bold">
-                <Music className="w-3 h-3" />
-                <span>Audio Sermon</span>
+                <span>🎧 Audio</span>
               </span>
             )}
           </div>

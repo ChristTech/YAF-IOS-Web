@@ -509,7 +509,7 @@ export const DEFAULT_DAILY_SCRIPTURE: DailyScriptureDoc = {
     audioDurationMinutes: 0,
     publishedAt: 0,
   }),
-  authorName: 'Youth Pastor / Admin',
+  authorName: 'Living Faith Church Youth Ministry',
   createdAt: Date.now(),
 };
 

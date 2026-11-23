@@ -401,7 +401,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                 <div className="py-2.5 flex items-center justify-between gap-4">
                   <dt className="text-[#64748B] dark:text-[#94A3B8]">Secretariat / Office</dt>
                   <dd className="font-bold text-right text-[#0F172A] dark:text-white">
-                    {resolvedAddress || 'ECWA Youth Alive Fellowship Secretariat'}
+                    {resolvedAddress || 'Living Faith Church Youth Alive Fellowship Secretariat'}
                   </dd>
                 </div>
               </dl>

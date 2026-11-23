@@ -22,6 +22,69 @@ export const FIVE_DAYS_MS = 5 * DAY_MS;
 export const WORK_SKILLS_TTL_MS = 3 * DAY_MS;
 export const FORUM_POST_TTL_MS = 7 * DAY_MS;
 
+export const ADMIN_SECRETARIAT_ADDRESS =
+  'Living Faith Church Youth Alive Fellowship Secretariat';
+export const DEFAULT_MINISTRY_AUTHOR = 'Living Faith Church Youth Ministry';
+
+export function sanitizeChurchBrandText(value?: string | null): string {
+  const raw = (value || '').trim();
+  if (!raw) return '';
+  return raw.replace(/ecwa/gi, 'Living Faith Church');
+}
+
+export function isOfficialAdminAccount(
+  account: Pick<FellowshipAccount, 'id' | 'userId' | 'email' | 'role'>
+): boolean {
+  const emailLower = (account.email || '').trim().toLowerCase();
+  return (
+    account.id === 'user-admin-01' ||
+    account.userId === 'user-admin-01' ||
+    emailLower === 'admin@youthalive.org'
+  );
+}
+
+export function resolveMigratedAccountAddress(
+  account: Pick<FellowshipAccount, 'id' | 'userId' | 'email' | 'role' | 'address'>
+): { address: string | undefined; changed: boolean } {
+  const current = (account.address || '').trim();
+  if (isOfficialAdminAccount(account)) {
+    if (!current || /ecwa/i.test(current)) {
+      return {
+        address: ADMIN_SECRETARIAT_ADDRESS,
+        changed: current !== ADMIN_SECRETARIAT_ADDRESS,
+      };
+    }
+    return { address: current, changed: false };
+  }
+
+  if (current && /ecwa/i.test(current)) {
+    const sanitized = sanitizeChurchBrandText(current);
+    return {
+      address: sanitized,
+      changed: sanitized !== current,
+    };
+  }
+
+  return { address: account.address, changed: false };
+}
+
+export function applyAccountBrandMigration(account: FellowshipAccount): {
+  account: FellowshipAccount;
+  changed: boolean;
+} {
+  const { address, changed } = resolveMigratedAccountAddress(account);
+  if (!changed) {
+    return { account, changed: false };
+  }
+  return {
+    account: {
+      ...account,
+      address,
+    },
+    changed: true,
+  };
+}
+
 export interface EventCategoryMeta {
   value: EventCategory;
   label: string;
@@ -740,7 +803,7 @@ export function extractScriptureOfTheDay(
       reference: 'Judges 6:12',
       verseText: localizeBuiltInVerse('Judges 6:12', 'The LORD is with thee, thou mighty man of valour.', language),
       chargeText: 'Rise as mighty Gideonites today and do Kingdom exploits!',
-      authorName: 'Youth Pastor / Admin',
+      authorName: DEFAULT_MINISTRY_AUTHOR,
       publishedAt: 0,
     };
   }
@@ -754,7 +817,7 @@ export function extractScriptureOfTheDay(
     reference: ref,
     verseText: localizeBuiltInVerse(ref, baseVerse, language, latest.doc),
     chargeText: latest.charge,
-    authorName: (latest.doc.authorName || 'Youth Pastor / Admin').trim(),
+    authorName: (latest.doc.authorName || DEFAULT_MINISTRY_AUTHOR).trim(),
     publishedAt: latest.sortTime,
   };
 }

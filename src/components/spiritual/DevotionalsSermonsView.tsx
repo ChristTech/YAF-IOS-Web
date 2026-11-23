@@ -110,7 +110,7 @@ export const DevotionalsSermonsView: React.FC<DevotionalsSermonsViewProps> = ({
     return {
       reference,
       text: displayText,
-      authorName: (liveDoc.authorName || 'Youth Pastor / Admin').trim(),
+      authorName: (liveDoc.authorName || 'Living Faith Church Youth Ministry').trim(),
     };
   }, [scriptureDocs, language]);
 

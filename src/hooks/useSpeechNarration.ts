@@ -250,7 +250,7 @@ export function useSpeechNarration(language: LanguageCode) {
           if (typeof MediaMetadata !== 'undefined') {
             navigator.mediaSession.metadata = new MediaMetadata({
               title: item.title,
-              artist: item.speaker || 'Youth Leadership',
+              artist: item.speaker || 'Living Faith Church Youth Ministry',
               album: 'The Gideonites Spiritual Library',
             });
           }
