@@ -912,8 +912,30 @@ export class ErrorOverlay extends BaseHTMLElement {}
     app.use(vite.middlewares);
   } else {
     const distDir = path.join(__dirname, 'dist');
-    app.use(express.static(distDir));
-    app.get('*', (_req: Request, res: Response) => {
+    app.use(
+      express.static(distDir, {
+        setHeaders: (res, filePath) => {
+          const base = path.basename(filePath);
+          if (base === 'sw.js' || base === 'sw.mjs' || base === 'index.html') {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            if (base === 'sw.js') {
+              res.setHeader('Service-Worker-Allowed', '/');
+            }
+          } else if (base === 'manifest.webmanifest') {
+            res.setHeader('Content-Type', 'application/manifest+json');
+            res.setHeader('Cache-Control', 'no-cache');
+          } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+        },
+      })
+    );
+    app.get('*', (req: Request, res: Response) => {
+      if (req.path.startsWith('/api/')) {
+        res.status(404).json({ error: 'API route not found.' });
+        return;
+      }
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(path.join(distDir, 'index.html'));
     });
   }

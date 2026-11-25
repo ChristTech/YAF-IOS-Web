@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: the-gideonites-fellowship
+    runtime: node
+    plan: free
+    autoDeploy: true
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: VAPID_SUBJECT
+        value: mailto:fellowship@gideonites.org
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
