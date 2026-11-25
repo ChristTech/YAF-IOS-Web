@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Eye, EyeOff, Lock, Mail, Moon, Phone, Sun, User } from 'lucide-react';
-import { ChurchLogoBadge } from './ChurchLogoBadge';
+import React, { useRef, useState } from 'react';
+import { Camera, Eye, EyeOff, Loader2, Lock, Mail, Moon, Phone, Sun, Trash2, User } from 'lucide-react';
+import { ChurchLogoBadge, UserAvatar } from './ChurchLogoBadge';
 import { IOSInstallBanner } from './PWAInstallUI';
 import { ALL_DEPARTMENT_TYPES } from '../data/bibleData';
 import {
@@ -8,6 +8,7 @@ import {
   signInWithCredentials,
   signInWithGoogleAccount,
 } from '../services/fellowshipService';
+import { compressAvatarImageFile } from '../utils/documentParser';
 import { formatActionErrorMessage } from '../utils/fellowshipLogic';
 import type { FellowshipAccount, LanguageCode, UserRole } from '../types/fellowship';
 
@@ -35,9 +36,39 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [role, setRole] = useState<Exclude<UserRole, 'ADMINISTRATOR'>>('YOUTH_MEMBER');
   const [department, setDepartment] = useState<string>(ALL_DEPARTMENT_TYPES[0].type);
   const [preferredLanguage, setPreferredLanguage] = useState<LanguageCode>('EN');
+  const [profilePhotoUri, setProfilePhotoUri] = useState('');
+  const [processingPhoto, setProcessingPhoto] = useState(false);
+  const regPhotoInputRef = useRef<HTMLInputElement | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const handleSelectRegPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.type && !file.type.startsWith('image/')) {
+      setErrorMsg('Please select a valid image file (JPG, PNG, or WebP).');
+      return;
+    }
+    setErrorMsg(null);
+    setProcessingPhoto(true);
+    try {
+      const compressed = await compressAvatarImageFile(file, 280, 88_000);
+      setProfilePhotoUri(compressed);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Unable to process selected image.');
+    } finally {
+      setProcessingPhoto(false);
+    }
+  };
+
+  const handleClearRegPhoto = () => {
+    setProfilePhotoUri('');
+    if (regPhotoInputRef.current) {
+      regPhotoInputRef.current.value = '';
+    }
+  };
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,6 +97,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         role,
         department,
         preferredLanguage,
+        profilePhotoUri: profilePhotoUri || undefined,
       });
       onAuthenticated(account);
     } catch (err) {
@@ -230,6 +262,68 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               </form>
             ) : (
               <form onSubmit={handleRegister} className="space-y-3.5">
+                {/* Profile Picture Upload Row */}
+                <div className="flex items-center gap-4 rounded-xl bg-[#F8FAFC] dark:bg-[#1F2937] p-3.5 border border-[#E2E8F0] dark:border-[#374151]">
+                  <UserAvatar
+                    account={{
+                      id: 'new-member-preview',
+                      role,
+                      fullName: fullName || 'New Gideonite',
+                      avatarUrl: profilePhotoUri || undefined,
+                      profilePhotoUri: profilePhotoUri || undefined,
+                    }}
+                    size={72}
+                  />
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label
+                        htmlFor="reg-photo-input"
+                        className={`min-h-[44px] px-3.5 rounded-xl bg-[#0F172A] dark:bg-[#E11D48] text-white text-xs font-bold inline-flex items-center gap-1.5 transition-opacity ${
+                          processingPhoto || loading
+                            ? 'opacity-60 cursor-not-allowed'
+                            : 'cursor-pointer hover:opacity-95'
+                        }`}
+                      >
+                        {processingPhoto ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Camera className="w-3.5 h-3.5" />
+                        )}
+                        <span>
+                          {processingPhoto
+                            ? 'Processing...'
+                            : profilePhotoUri
+                            ? 'Change Picture'
+                            : 'Upload Picture'}
+                        </span>
+                        <input
+                          id="reg-photo-input"
+                          ref={regPhotoInputRef}
+                          type="file"
+                          accept="image/*"
+                          disabled={processingPhoto || loading}
+                          onChange={handleSelectRegPhoto}
+                          className="hidden"
+                        />
+                      </label>
+                      {profilePhotoUri && (
+                        <button
+                          type="button"
+                          onClick={handleClearRegPhoto}
+                          disabled={processingPhoto || loading}
+                          className="min-h-[44px] px-3 rounded-xl border border-[#E11D48]/50 text-[#E11D48] text-xs font-bold inline-flex items-center gap-1 hover:bg-[#FFF1F2] dark:hover:bg-[#9F1239]/20 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Remove</span>
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                      Optional profile photo (auto-compressed for fast sync)
+                    </p>
+                  </div>
+                </div>
+
                 <div>
                   <label
                     htmlFor="reg-name"
@@ -382,10 +476,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || processingPhoto}
                   className="w-full min-h-[48px] rounded-xl bg-[#E11D48] hover:bg-[#9F1239] disabled:opacity-60 text-white text-sm font-bold shadow-sm transition-colors"
                 >
-                  {loading ? 'Creating Account...' : 'Create Fellowship Account'}
+                  {loading
+                    ? 'Creating Account...'
+                    : processingPhoto
+                    ? 'Processing Photo...'
+                    : 'Create Fellowship Account'}
                 </button>
               </form>
             )}

@@ -717,6 +717,27 @@ test('buildNewAccountFirestoreDoc enforces Android fellowship_accounts schema pa
   assert.equal('password' in doc, false);
   assert.equal('passwordSalt' in doc, false);
   assert.equal('avatarUrl' in doc, false);
+  assert.equal('profilePhotoUri' in doc, false);
+
+  const docWithPhoto = buildNewAccountFirestoreDoc({
+    userId: 'user-photo-1',
+    fullName: 'Grace Okonkwo',
+    email: 'grace@example.com',
+    profilePhotoUri: '  data:image/jpeg;base64,/9j/4AAQSkZJRg==  ',
+    createdAt: 1000,
+    updatedAt: 1000,
+  });
+  assert.equal(docWithPhoto.profilePhotoUri, 'data:image/jpeg;base64,/9j/4AAQSkZJRg==');
+
+  const docWithBlankPhoto = buildNewAccountFirestoreDoc({
+    userId: 'user-photo-2',
+    fullName: 'Grace Okonkwo',
+    email: 'grace2@example.com',
+    profilePhotoUri: '   ',
+    createdAt: 1000,
+    updatedAt: 1000,
+  });
+  assert.equal('profilePhotoUri' in docWithBlankPhoto, false);
 });
 
 test('Church brand migration updates ECWA strings, Admin secretariat address, and guards write loops', () => {

@@ -545,6 +545,7 @@ export async function registerFellowshipAccount(params: {
   role: Exclude<UserRole, 'ADMINISTRATOR'>;
   department: string;
   preferredLanguage: LanguageCode;
+  profilePhotoUri?: string;
 }): Promise<FellowshipAccount> {
   const emailLower = params.email.trim().toLowerCase();
   if (!params.fullName.trim() || !emailLower || params.password.length < 6) {
@@ -568,6 +569,7 @@ export async function registerFellowshipAccount(params: {
     normalizedRole === 'ADMINISTRATOR' ? 'YOUTH_MEMBER' : normalizedRole;
   const status = role === 'YOUTH_EXECUTIVE' ? 'PENDING' : 'APPROVED';
   const normalizedDept = normalizeDepartmentType(params.department);
+  const cleanPhotoUri = (params.profilePhotoUri || '').trim();
   const now = Date.now();
 
   const firestoreDoc = buildNewAccountFirestoreDoc({
@@ -582,6 +584,7 @@ export async function registerFellowshipAccount(params: {
     status,
     department: normalizedDept,
     preferredLanguage: params.preferredLanguage,
+    profilePhotoUri: cleanPhotoUri || undefined,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -602,6 +605,7 @@ export async function registerFellowshipAccount(params: {
     preferredLanguage: normalizeLanguageCode(params.preferredLanguage),
     englishOverride: false,
     xpPoints: 0,
+    ...(cleanPhotoUri ? { profilePhotoUri: cleanPhotoUri, avatarUrl: cleanPhotoUri } : {}),
     createdAt: now,
     updatedAt: now,
   };
